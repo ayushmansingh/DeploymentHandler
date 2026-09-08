@@ -1,0 +1,56 @@
+import socket
+
+import pytest
+
+from launcher import config, db, ports
+
+
+@pytest.fixture
+def store(data_dir, monkeypatch):
+    monkeypatch.setattr(config, "PORT_RANGE_START", 21000)
+    monkeypatch.setattr(config, "PORT_RANGE_END", 21009)
+    db.init()
+    return data_dir
+
+
+def test_allocates_within_range(store):
+    app_id = db.create_app("alpha")
+    port = ports.allocate(app_id)
+    assert config.PORT_RANGE_START <= port <= config.PORT_RANGE_END
+
+
+def test_port_is_stable_across_redeploys(store):
+    app_id = db.create_app("alpha")
+    assert ports.allocate(app_id) == ports.allocate(app_id)
+
+
+def test_apps_never_share_a_port(store):
+    assigned = {ports.allocate(db.create_app(f"app{i}")) for i in range(8)}
+    assert len(assigned) == 8
+
+
+def test_skips_ports_held_by_other_processes(store, monkeypatch):
+    monkeypatch.setattr(config, "PORT_RANGE_START", 21100)
+    monkeypatch.setattr(config, "PORT_RANGE_END", 21101)
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("0.0.0.0", 21100))
+    blocker.listen(1)
+    try:
+        assert ports.allocate(db.create_app("alpha")) == 21101
+    finally:
+        blocker.close()
+
+
+def test_raises_when_range_exhausted(store):
+    for i in range(10):
+        ports.allocate(db.create_app(f"app{i}"))
+    with pytest.raises(ports.NoPortsAvailable):
+        ports.allocate(db.create_app("one-too-many"))
+
+
+def test_release_frees_the_port(store):
+    app_id = db.create_app("alpha")
+    port = ports.allocate(app_id)
+    ports.release(app_id)
+    assert ports.allocated_port(app_id) is None
+    assert port not in ports.in_use()

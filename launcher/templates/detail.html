@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ app['name'] }} - App Launcher{% endblock %}
+{% block body %}
+<h1>{{ app['name'] }}</h1>
+<p class="sub">
+  <span class="pill {{ app['status'] }}">{{ app['status'] }}</span>
+  {% if app['kind'] != 'unknown' %}<span class="muted">&nbsp;{{ app['kind'] }}</span>{% endif %}
+  {% if app['owner'] %}<span class="muted">&nbsp;· uploaded by {{ app['owner'] }}</span>{% endif %}
+</p>
+
+<div id="result"></div>
+
+{% if url and app['status'] == 'live' %}
+<div class="banner ok"><strong>Your app is live:</strong>
+  <a href="{{ url }}" target="_blank">{{ url }}</a></div>
+{% endif %}
+
+{% if current and current['status'] == 'failed' and current['error_summary'] %}
+<div class="banner bad"><strong>Deploy failed.</strong> {{ current['error_summary'] }}</div>
+{% endif %}
+
+<div class="card">
+  <div class="row" style="margin-bottom:12px">
+    <strong style="margin-right:auto">Build log</strong>
+    <button id="copy-error" data-deploy="{{ current['id'] if current else '' }}">
+      Copy error for AI</button>
+    {% if url %}<a class="btn" href="{{ url }}" target="_blank">Open app</a>{% endif %}
+  </div>
+  <pre class="log" id="log">Loading...</pre>
+</div>
+
+<div class="card">
+  <div class="row">
+    <form method="post" action="/app/{{ app['name'] }}/stop"><button>Stop</button></form>
+    <form method="post" action="/app/{{ app['name'] }}/start"><button>Start</button></form>
+    <span class="muted">container: {{ container_state }}</span>
+    <form method="post" action="/app/{{ app['name'] }}/delete" style="margin-left:auto"
+          onsubmit="return confirm('Delete {{ app['name'] }} and all its versions?')">
+      <button class="danger">Delete app</button></form>
+  </div>
+</div>
+
+<h2>Previous versions</h2>
+<div class="card" style="padding:6px 14px">
+<table>
+  <tr><th>Uploaded</th><th>By</th><th>Result</th><th></th></tr>
+  {% for d in deploys %}
+  <tr>
+    <td><a href="/app/{{ app['name'] }}?deploy={{ d['id'] }}">{{ d['created_at'] | datetime }}</a></td>
+    <td class="muted">{{ d['uploaded_by'] or '-' }}</td>
+    <td><span class="pill {{ d['status'] }}">{{ d['status'] }}</span></td>
+    <td style="text-align:right">
+      <form method="post" action="/app/{{ app['name'] }}/redeploy/{{ d['id'] }}">
+        <button>Restore this version</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+<script>
+const appName = {{ app['name'] | tojson }};
+const deployId = {{ (current['id'] if current else None) | tojson }};
+const query = deployId ? ("?deploy=" + deployId) : "";
+const logEl = document.getElementById("log");
+let settled = false;
+
+async function refresh() {
+  try {
+    const [logText, status] = await Promise.all([
+      fetch(`/app/${appName}/log${query}`).then(r => r.text()),
+      fetch(`/app/${appName}/status${query}`).then(r => r.json()),
+    ]);
+    // Only auto-scroll when the user is already at the bottom, so reading
+    // back through a long log is not yanked away on each poll.
+    const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+    logEl.textContent = logText || "Waiting for the build to start...";
+    if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+
+    if (["live", "failed"].includes(status.deploy_status)) {
+      if (!settled) { settled = true; setTimeout(() => location.reload(), 800); }
+      return;
+    }
+  } catch (err) { /* transient; try again on the next tick */ }
+  setTimeout(refresh, 1500);
+}
+refresh();
+
+document.getElementById("copy-error").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;
+  const text = await fetch(`/app/${appName}/repair-prompt${query}`).then(r => r.text());
+  await navigator.clipboard.writeText(text);
+  btn.textContent = "Copied - paste into Claude";
+  setTimeout(() => { btn.textContent = "Copy error for AI"; }, 4000);
+});
+</script>
+{% endblock %}

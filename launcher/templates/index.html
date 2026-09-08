@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Deploy a dashboard</h1>
+<p class="sub">Upload the ZIP your AI assistant gave you. We'll build it and give you a link.</p>
+
+{% if not docker_ok %}
+<div class="banner bad"><strong>Docker is not running on this server.</strong>
+Deploys will fail until it is started. Contact the server administrator.</div>
+{% endif %}
+
+<div class="card">
+  <form method="post" action="/upload" enctype="multipart/form-data">
+    <label for="name">App name</label>
+    <input type="text" id="name" name="name" placeholder="sales-dashboard" required>
+    <p class="muted" style="font-size:13px;margin:5px 0 0">
+      Use the same name again to update an existing app. Its link will not change.</p>
+
+    <label for="uploaded_by">Your name</label>
+    <input type="text" id="uploaded_by" name="uploaded_by" placeholder="Priya">
+
+    <label for="file">ZIP file</label>
+    <input type="file" id="file" name="file" accept=".zip,application/zip" required>
+
+    <p style="margin:18px 0 0"><button type="submit" class="primary">Deploy</button></p>
+  </form>
+</div>
+
+<details class="card">
+  <summary>Before you ask your AI assistant for the ZIP, paste this into your prompt</summary>
+  <p class="muted" style="font-size:13px">This makes the ZIP work on our server the first time.</p>
+  <pre class="log" id="prompt-block">Package this as a ZIP for our internal app server:
+- Layout: backend/ (Python) and frontend/ (React + Vite)
+- backend/requirements.txt, pinned to versions that exist on PyPI
+- Backend listens on 0.0.0.0:8000
+- frontend/package.json MUST have a "build" script
+- ALL frontend API calls use relative paths starting with /api
+  e.g. fetch("/api/items") - NEVER http://localhost:8000
+- The app must start with no .env file; use safe defaults
+- Do not include node_modules or .venv</pre>
+  <button onclick="navigator.clipboard.writeText(document.getElementById('prompt-block').innerText)">
+    Copy prompt</button>
+</details>
+
+<h2>Apps on this server</h2>
+{% if not apps %}
+<div class="card muted">Nothing deployed yet. Upload a ZIP above to get started.</div>
+{% else %}
+<div class="card" style="padding:6px 14px">
+<table>
+  <tr><th>App</th><th>Status</th><th>Link</th><th>Owner</th><th>Last deploy</th></tr>
+  {% for item in apps %}
+  <tr>
+    <td><a href="/app/{{ item.row['name'] }}">{{ item.row['name'] }}</a></td>
+    <td><span class="pill {{ item.row['status'] }}">{{ item.row['status'] }}</span></td>
+    <td>{% if item.url %}<a href="{{ item.url }}" target="_blank">{{ item.url }}</a>
+        {% else %}<span class="muted">-</span>{% endif %}</td>
+    <td class="muted">{{ item.row['owner'] or '-' }}</td>
+    <td class="muted">{{ item.latest['created_at'] | datetime if item.latest else '-' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+{% endblock %}

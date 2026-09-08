@@ -1,0 +1,17 @@
+# Copy to C:\Users\<you>\.wslconfig on the Windows host, then run
+# `wsl --shutdown` and start WSL again.
+[wsl2]
+# Leave headroom for Windows itself. WSL2 otherwise claims up to 50% of RAM,
+# which is not enough when two npm builds run at once.
+memory=12GB
+processors=4
+swap=16GB
+
+# Makes WSL share the Windows network stack, so ports bound inside WSL are
+# reachable from other machines on the LAN with no port forwarding.
+# Requires Windows 11 22H2 or newer.
+networkingMode=mirrored
+
+[experimental]
+# Return freed disk space to Windows instead of growing the VHDX forever.
+sparseVhd=true

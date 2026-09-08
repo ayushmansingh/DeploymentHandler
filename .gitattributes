@@ -1,0 +1,7 @@
+# Generated shell scripts run inside Linux containers. If Git hands them back
+# with CRLF line endings on a Windows checkout, the container fails with an
+# unreadable "exec format error", so pin LF for everything textual.
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.zip binary

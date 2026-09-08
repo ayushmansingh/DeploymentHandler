@@ -1,0 +1,22 @@
+# Install to /etc/systemd/system/applauncher.service inside WSL, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now applauncher
+[Unit]
+Description=Internal App Launcher
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/applauncher
+Environment=LAUNCHER_DATA_DIR=/var/lib/applauncher
+# Set this to the SERVER'S LAN IP or hostname. If it stays "localhost", the
+# links handed to your team will only work on the server itself.
+Environment=LAUNCHER_PUBLIC_HOST=192.168.1.50
+Environment=LAUNCHER_MAX_BUILDS=2
+ExecStart=/opt/applauncher/.venv/bin/uvicorn launcher.app:app --host 0.0.0.0 --port 80
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
