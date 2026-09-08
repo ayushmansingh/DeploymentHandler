@@ -64,26 +64,67 @@ question for a company.
 
 ### 1. Install WSL2 with Ubuntu
 
-In an elevated PowerShell:
+Check the Windows version first with `winver`. Mirrored networking needs
+Windows 11 22H2 (build 22621) or newer; without it, ports inside WSL are not
+reachable from the LAN, which defeats the point. In an elevated PowerShell:
 
 ```powershell
+wsl --update
 wsl --install -d Ubuntu-24.04
 ```
+
+`wsl --update` matters even on a fresh machine: mirrored networking needs a
+recent WSL release, which updates independently of Windows itself.
 
 ### 2. Configure WSL resources and networking
 
 Copy `deploy/wslconfig.example` to `C:\Users\<you>\.wslconfig`, adjust the
 memory line, then `wsl --shutdown` and reopen Ubuntu.
 
-`networkingMode=mirrored` is the important setting: it makes ports bound
-inside WSL reachable from other machines on the LAN. It needs Windows 11
-22H2+. On Windows 10 see "Windows 10 fallback" below.
+`networkingMode=mirrored` is the setting that makes this work: WSL shares the
+Windows network stack, so a port bound inside WSL is reachable from other
+machines on the network with no port forwarding.
+
+Two caveats worth knowing before you rely on it:
+
+- Mirrored mode can conflict with some corporate VPN clients and with other
+  hypervisors (VirtualBox, VMware). If the network misbehaves after enabling
+  it, that is the first thing to suspect.
+- Inbound traffic to WSL still passes through the Windows Firewall, so the
+  rules in step 5 are required, not optional.
+
+Confirm it took effect — this should print the Windows LAN IP, not a
+172.x.x.x address:
+
+```bash
+ip addr show eth0 | grep 'inet '
+```
 
 ### 3. Install Docker inside WSL
 
 ```bash
 sudo apt update && sudo apt install -y docker.io python3-venv python3-pip
-sudo usermod -aG docker $USER   # log out and back in
+sudo usermod -aG docker $USER   # log out and back in for this to apply
+```
+
+The launcher runs as a systemd service, so check systemd is enabled inside
+WSL — Ubuntu 24.04 enables it by default, but confirm:
+
+```bash
+cat /etc/wsl.conf     # expect [boot] with systemd=true
+systemctl is-system-running   # "running" or "degraded" are both fine
+```
+
+If it is missing, add it and run `wsl --shutdown` from PowerShell:
+
+```ini
+[boot]
+systemd=true
+```
+
+Then:
+
+```bash
 sudo systemctl enable --now docker
 ```
 
@@ -137,16 +178,14 @@ user not in the docker group, no disk space, dependencies missing).
 --keep    leave the sample app running so you can open it in a browser
 ```
 
-### Windows 10 fallback
+### If mirrored networking is unavailable
 
-Without mirrored networking, WSL sits behind NAT and its ports are not
-reachable from the LAN. Options, best first:
-
-1. **Upgrade to Windows 11** — removes the whole problem.
-2. **Install Ubuntu Server on the machine directly** — also removes the
-   problem, and reclaims the RAM Windows is using.
-3. **Port-proxy each app port** with `netsh interface portproxy`, re-applied
-   whenever the WSL IP changes. Workable but fragile; not recommended.
+On Windows 10, or an older Windows 11, WSL sits behind NAT and its ports are
+not reachable from the LAN. Options, best first: upgrade to Windows 11 22H2+;
+install Ubuntu Server on the machine directly (which also reclaims the RAM
+Windows is using); or maintain `netsh interface portproxy` rules per app port,
+re-applied whenever the WSL IP changes — workable but fragile, since this
+launcher allocates ports dynamically.
 
 ## Configuration
 
