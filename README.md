@@ -58,9 +58,20 @@ upload -> extract -> detect -> generate Dockerfile -> preflight
 
 ## Setting up the server (Windows host)
 
-The launcher runs Linux containers, so on Windows it lives inside WSL2. Use
-**Docker Engine inside WSL**, not Docker Desktop — same result, no licensing
-question for a company.
+**Windows stays as it is.** Nothing here replaces, dual-boots or repartitions
+the machine. The launcher runs Linux containers, so it lives inside WSL — a
+built-in Windows feature that runs a Linux environment as a sandbox on top of
+Windows. Installing it is closer to installing an application than an
+operating system, and every `apt` command below runs inside that sandbox, not
+on Windows itself.
+
+Use **Docker Engine inside WSL**, not Docker Desktop — same result, no
+licensing question for a company above Docker's free-use threshold.
+
+Requirements: Windows 11 22H2 or newer, local administrator rights, and
+hardware virtualisation enabled in the BIOS (Task Manager -> Performance ->
+CPU -> Virtualization: Enabled). Check WSL is available with `wsl --status`
+before starting.
 
 ### 1. Install WSL2 with Ubuntu
 
