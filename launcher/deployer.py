@@ -17,7 +17,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import archive, config, db, detect, errors, imagegen, ports, runtime
+from . import archive, config, db, detect, errors, imagegen, native, ports, runtime
+from . import supervisor
 
 _executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
@@ -110,6 +111,15 @@ def _fail(deploy_id: int, log: _Log, diagnosis: errors.Diagnosis) -> None:
     db.finish_deploy(deploy_id, "failed", diagnosis.summary)
 
 
+def _is_serving(app_row) -> bool:
+    """Whether this app is currently answering, under either runtime."""
+    if config.RUNTIME == "native":
+        return native.is_running(
+            app_row["front_pid"], f"--port {app_row['host_port']}"
+        )
+    return runtime.container_state(app_row["container_id"] or "") == "running"
+
+
 def _apply_failure_status(app_row, log: _Log, swapped: bool) -> None:
     """Set the app's status after a failed deploy.
 
@@ -121,7 +131,7 @@ def _apply_failure_status(app_row, log: _Log, swapped: bool) -> None:
     if swapped:
         db.update_app(app_id, status="failed")
         return
-    if runtime.container_state(app_row["container_id"] or "") == "running":
+    if _is_serving(app_row):
         log.line(
             "[launcher] Your previous version is still running - nothing was "
             "taken offline."
@@ -173,41 +183,69 @@ def run_deploy(deploy_id: int) -> None:
                 _apply_failure_status(app, log, swapped)
                 return
 
-        # 4. Generate the container recipe and build it.
-        imagegen.write_build_context(src, spec)
-        tag = f"applauncher/{name}:{deploy_id}"
-        log.line(f"[launcher] Building container image (this usually takes 1-3 minutes)...")
-        code = runtime.build_image(src, tag, log.write)
-        if code != 0:
-            _fail(deploy_id, log, errors.diagnose(log.read()))
-            _apply_failure_status(app, log, swapped)
-            return
+        # 4. Install dependencies and build, then 5. start the new version.
+        if config.RUNTIME == "native":
+            code = native.prepare(src, spec, log.write)
+            if code != 0:
+                _fail(deploy_id, log, errors.diagnose(log.read()))
+                _apply_failure_status(app, log, swapped)
+                return
 
-        # 5. Allocate the app's stable port and swap the container.
-        host_port = ports.allocate(app["id"])
-        log.line(f"[launcher] Using port {host_port}.")
+            host_port = ports.allocate(int(app["id"]), ports.PUBLIC)
+            backend_port = (
+                ports.allocate(int(app["id"]), ports.BACKEND) if spec.backend else None
+            )
+            log.line(f"[launcher] Using port {host_port}.")
 
-        old_container = app["container_id"]
-        if old_container:
-            log.line("[launcher] Stopping the previous version...")
-            runtime.stop_container(old_container)
-        runtime.remove_container_by_name(name)
+            if app["front_pid"] or app["pid"]:
+                log.line("[launcher] Stopping the previous version...")
+            supervisor.stop(app)
 
-        container_id = runtime.run_container(tag, name, host_port)
-        swapped = True
-        log.line(f"[launcher] Started container {container_id[:12]}.")
-        db.update_app(
-            app["id"], container_id=container_id, image_tag=tag, host_port=host_port
-        )
+            processes = native.start(
+                name, src, spec, host_port, backend_port, config.LOG_DIR / name
+            )
+            swapped = True
+            log.line(f"[launcher] Started the app (process {processes.front_pid}).")
+            db.update_app(
+                int(app["id"]), host_port=host_port, backend_port=backend_port,
+                pid=processes.backend_pid, front_pid=processes.front_pid,
+            )
+        else:
+            imagegen.write_build_context(src, spec)
+            tag = f"applauncher/{name}:{deploy_id}"
+            log.line("[launcher] Building container image (this usually takes 1-3 minutes)...")
+            code = runtime.build_image(src, tag, log.write)
+            if code != 0:
+                _fail(deploy_id, log, errors.diagnose(log.read()))
+                _apply_failure_status(app, log, swapped)
+                return
+
+            host_port = ports.allocate(int(app["id"]), ports.PUBLIC)
+            log.line(f"[launcher] Using port {host_port}.")
+
+            if app["container_id"]:
+                log.line("[launcher] Stopping the previous version...")
+                runtime.stop_container(app["container_id"])
+            runtime.remove_container_by_name(name)
+
+            container_id = runtime.run_container(tag, name, host_port)
+            swapped = True
+            log.line(f"[launcher] Started container {container_id[:12]}.")
+            db.update_app(
+                int(app["id"]), container_id=container_id, image_tag=tag,
+                host_port=host_port,
+            )
 
         # 6. Prove it actually serves traffic before calling it a success.
         if not _verify_http(host_port, log):
-            log.write(runtime.container_logs(container_id, tail=100))
+            log.write(_runtime_logs(name, db.get_app(int(app["id"]))))
             diagnosis = errors.diagnose(log.read())
             diagnosis.summary = (
                 "Your app was built successfully but did not start. " + diagnosis.summary
             )
             _fail(deploy_id, log, diagnosis)
+            if config.RUNTIME == "native":
+                supervisor.stop(db.get_app(int(app["id"])))
             _apply_failure_status(app, log, swapped)
             return
 
@@ -219,6 +257,17 @@ def run_deploy(deploy_id: int) -> None:
 
     except (archive.ArchiveError, detect.DetectionError) as exc:
         _fail(deploy_id, log, errors.Diagnosis(summary=str(exc), detail=None, hint=None))
+        _apply_failure_status(app, log, swapped)
+    except native.ToolchainError as exc:
+        _fail(
+            deploy_id, log,
+            errors.Diagnosis(
+                summary=str(exc),
+                detail=None,
+                hint="This is a problem with the server, not with your ZIP. "
+                "Please tell the server administrator.",
+            ),
+        )
         _apply_failure_status(app, log, swapped)
     except ports.NoPortsAvailable as exc:
         _fail(
@@ -241,6 +290,17 @@ def run_deploy(deploy_id: int) -> None:
             ),
         )
         _apply_failure_status(app, log, swapped)
+
+
+def _runtime_logs(name: str, app_row) -> str:
+    """The app's own output, wherever this runtime keeps it."""
+    if config.RUNTIME == "native":
+        try:
+            text = (config.LOG_DIR / name / "runtime.log").read_text(errors="replace")
+        except FileNotFoundError:
+            return ""
+        return "\n".join(text.splitlines()[-100:]) + "\n"
+    return runtime.container_logs(app_row["container_id"] or "", tail=100)
 
 
 def _prune_old_versions(name: str) -> None:

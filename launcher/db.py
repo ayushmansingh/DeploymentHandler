@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS apps (
     kind          TEXT    NOT NULL DEFAULT 'unknown',
     status        TEXT    NOT NULL DEFAULT 'new',
     host_port     INTEGER,
+    backend_port  INTEGER,
+    pid           INTEGER,
+    front_pid     INTEGER,
     container_id  TEXT,
     image_tag     TEXT,
     created_at    REAL    NOT NULL,
@@ -41,16 +44,21 @@ CREATE TABLE IF NOT EXISTS deploys (
 );
 
 -- The UNIQUE constraint on port is what makes allocation race-free: two
--- concurrent deploys cannot both claim the same host port, because the second
+-- concurrent deploys cannot both claim the same port, because the second
 -- INSERT fails instead of silently overwriting.
+--
+-- An app holds one port per role: "public" is the one people browse to, and
+-- in native mode "backend" is a loopback-only port its front server proxies
+-- to. Both are kept so that a restart reuses them rather than reshuffling.
 CREATE TABLE IF NOT EXISTS ports (
     port         INTEGER PRIMARY KEY,
     app_id       INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    role         TEXT    NOT NULL DEFAULT 'public',
     allocated_at REAL    NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_deploys_app ON deploys(app_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ports_app ON ports(app_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ports_app_role ON ports(app_id, role);
 """
 
 
@@ -68,9 +76,32 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# Columns added after the first release. Applied on startup so an existing
+# database picks them up without a manual migration step.
+_ADDED_COLUMNS = {
+    "apps": {
+        "backend_port": "INTEGER",
+        "pid": "INTEGER",
+        "front_pid": "INTEGER",
+    },
+    "ports": {
+        "role": "TEXT NOT NULL DEFAULT 'public'",
+    },
+}
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, definition in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init(db_path: Path | None = None) -> None:
     with connect(db_path) as conn:
         conn.executescript(SCHEMA)
+        _apply_migrations(conn)
 
 
 def create_app(name: str, owner: str = "", db_path: Path | None = None) -> int:
@@ -101,7 +132,10 @@ def list_apps(db_path: Path | None = None) -> list[sqlite3.Row]:
 def update_app(app_id: int, db_path: Path | None = None, **fields: Any) -> None:
     if not fields:
         return
-    allowed = {"kind", "status", "host_port", "container_id", "image_tag", "owner"}
+    allowed = {
+        "kind", "status", "host_port", "backend_port", "pid", "front_pid",
+        "container_id", "image_tag", "owner",
+    }
     bad = set(fields) - allowed
     if bad:
         raise ValueError(f"cannot update unknown app columns: {sorted(bad)}")

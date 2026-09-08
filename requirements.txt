@@ -3,3 +3,6 @@ uvicorn[standard]==0.34.0
 jinja2==3.1.5
 python-multipart==0.0.20
 PyYAML==6.0.2
+# Native runtime: process supervision and proxying to app backends.
+psutil==6.1.1
+httpx==0.28.1

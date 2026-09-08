@@ -38,52 +38,67 @@ def _is_bindable(port: int) -> bool:
     return True
 
 
-def allocated_port(app_id: int, db_path: Path | None = None) -> int | None:
+PUBLIC = "public"     # the port people browse to
+BACKEND = "backend"   # loopback-only, reached through the app's front server
+
+
+def _range_for(role: str) -> tuple[int, int]:
+    if role == BACKEND:
+        return config.BACKEND_PORT_START, config.BACKEND_PORT_END
+    return config.PORT_RANGE_START, config.PORT_RANGE_END
+
+
+def allocated_port(
+    app_id: int, role: str = PUBLIC, db_path: Path | None = None
+) -> int | None:
     with db.connect(db_path) as conn:
-        row = conn.execute("SELECT port FROM ports WHERE app_id = ?", (app_id,)).fetchone()
+        row = conn.execute(
+            "SELECT port FROM ports WHERE app_id = ? AND role = ?", (app_id, role)
+        ).fetchone()
     return int(row["port"]) if row else None
 
 
-def allocate(app_id: int, db_path: Path | None = None) -> int:
-    """Return this app's stable host port, allocating one on first call."""
-    existing = allocated_port(app_id, db_path)
+def allocate(app_id: int, role: str = PUBLIC, db_path: Path | None = None) -> int:
+    """Return this app's stable port for `role`, allocating one on first call."""
+    existing = allocated_port(app_id, role, db_path)
     if existing is not None:
         return existing
 
-    span = config.PORT_RANGE_END - config.PORT_RANGE_START + 1
+    first, last = _range_for(role)
+    span = last - first + 1
     if span <= 0:
-        raise NoPortsAvailable("configured port range is empty")
+        raise NoPortsAvailable(f"configured {role} port range is empty")
 
     # Start at a random offset so repeated allocations don't all contend on the
     # low end of the range, then walk the whole span so we still find the last
     # free port when the range is nearly full.
     offset = random.randrange(span)
     for i in range(span):
-        port = config.PORT_RANGE_START + (offset + i) % span
+        port = first + (offset + i) % span
         if not _is_bindable(port):
             continue
         try:
             with db.connect(db_path) as conn:
                 conn.execute(
-                    "INSERT INTO ports (port, app_id, allocated_at) VALUES (?,?,?)",
-                    (port, app_id, time.time()),
+                    "INSERT INTO ports (port, app_id, role, allocated_at)"
+                    " VALUES (?,?,?,?)",
+                    (port, app_id, role, time.time()),
                 )
         except sqlite3.IntegrityError:
             # Either another deploy just claimed this port (port PK), or this
-            # app was allocated one concurrently (idx_ports_app). Re-check the
-            # latter before continuing the scan.
-            concurrent = allocated_port(app_id, db_path)
+            # app was allocated one for the same role concurrently
+            # (idx_ports_app_role). Re-check the latter before continuing.
+            concurrent = allocated_port(app_id, role, db_path)
             if concurrent is not None:
                 return concurrent
             continue
         return port
 
-    raise NoPortsAvailable(
-        f"no free port in {config.PORT_RANGE_START}-{config.PORT_RANGE_END}"
-    )
+    raise NoPortsAvailable(f"no free {role} port in {first}-{last}")
 
 
 def release(app_id: int, db_path: Path | None = None) -> None:
+    """Release every port held by an app, whatever its role."""
     with db.connect(db_path) as conn:
         conn.execute("DELETE FROM ports WHERE app_id = ?", (app_id,))
 

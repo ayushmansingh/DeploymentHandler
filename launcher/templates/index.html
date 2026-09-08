@@ -3,9 +3,9 @@
 <h1>Deploy a dashboard</h1>
 <p class="sub">Upload the ZIP your AI assistant gave you. We'll build it and give you a link.</p>
 
-{% if not docker_ok %}
-<div class="banner bad"><strong>Docker is not running on this server.</strong>
-Deploys will fail until it is started. Contact the server administrator.</div>
+{% if not runtime_ready %}
+<div class="banner bad"><strong>This server is not ready to build apps.</strong>
+{{ runtime_problem }} Contact the server administrator.</div>
 {% endif %}
 
 <div class="card">

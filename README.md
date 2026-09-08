@@ -4,11 +4,12 @@ Drop a ZIP, get a running app on the office network.
 
 Built for a team that writes dashboards with an AI assistant, downloads the
 ZIP, and wants it running somewhere everyone can see — without learning Git,
-Docker, or the command line.
+Docker, or the command line. It runs on an ordinary Windows machine and needs
+no administrator rights.
 
 ## What your team does
 
-1. Open `http://<server>/` on the LAN.
+1. Open `http://<server>:8080/` on the LAN.
 2. Type a name, choose the ZIP from their Downloads folder, click **Deploy**.
 3. Watch the build log scroll.
 4. Get a link like `http://192.168.1.50:24817`.
@@ -16,6 +17,8 @@ Docker, or the command line.
 Re-uploading under the same name updates the app and **keeps the same link**.
 Every upload is retained, so any previous version can be restored with one
 click.
+
+Nobody on the team ever sees a terminal or a port number they have to manage.
 
 ### Replacing a running app
 
@@ -30,173 +33,140 @@ running at once — typically when they would contend for the same file, SQLite
 database, or hardware device. That accepts downtime for the length of the
 build in exchange for a clean handover.
 
-Nobody on the team ever sees Docker, a terminal, or a port number they have to
-manage.
-
 ## How it works
 
-Each app becomes exactly one container, laid out the same way:
+Each app becomes a front server on its own public port, plus a backend on a
+loopback-only port that only the front server can reach:
 
 ```
-   nginx :80          <- the only published port
-     |-- /            static frontend build   (if the app has one)
-     '-- /api  ---->  127.0.0.1:8000          (the Python backend, if any)
+   front server :24817        <- the only port on the network
+     |-- /                    static frontend build   (if the app has one)
+     '-- /api  ---->  127.0.0.1:30412                 (Python backend, if any)
 ```
 
 Serving both halves from one origin is what makes relative `/api/...` calls
-work with no per-app configuration. Every container uses the same internal
-ports because each has its own network namespace; only the *host* port is
-unique, and it is recorded in a SQLite registry so it never changes under an
-app once assigned.
+work with no per-app configuration. Ports come from a SQLite registry, so an
+app keeps its link across redeploys and restarts.
+
+Each backend runs in **its own Python virtual environment**, so one app's
+dependencies cannot break another's.
 
 The pipeline:
 
 ```
-upload -> extract -> detect -> generate Dockerfile -> preflight
-       -> build -> allocate port -> run -> verify HTTP -> live
+upload -> extract -> detect -> install dependencies -> preflight
+       -> build frontend -> allocate ports -> start -> verify HTTP -> live
 ```
 
-## Setting up the server (Windows host)
+A supervisor thread then watches every running app: it restarts one whose
+processes have died, restarts one that has been over its memory limit for
+several checks running, and brings apps back after the launcher restarts.
 
-**Windows stays as it is.** Nothing here replaces, dual-boots or repartitions
-the machine. The launcher runs Linux containers, so it lives inside WSL — a
-built-in Windows feature that runs a Linux environment as a sandbox on top of
-Windows. Installing it is closer to installing an application than an
-operating system, and every `apt` command below runs inside that sandbox, not
-on Windows itself.
+## Setting up the server (Windows, no admin needed)
 
-Use **Docker Engine inside WSL**, not Docker Desktop — same result, no
-licensing question for a company above Docker's free-use threshold.
+### 1. Python
 
-Requirements: Windows 11 22H2 or newer, local administrator rights, and
-hardware virtualisation enabled in the BIOS (Task Manager -> Performance ->
-CPU -> Virtualization: Enabled). Check WSL is available with `wsl --status`
-before starting.
+Python 3.10 or newer, with the `venv` module. If `python --version` works in
+PowerShell you already have it. Otherwise install from python.org **for this
+user only** (uncheck "Install for all users"), or from the Microsoft Store.
 
-### 1. Install WSL2 with Ubuntu
+### 2. Node.js — the portable ZIP, not the installer
 
-Check the Windows version first with `winver`. Mirrored networking needs
-Windows 11 22H2 (build 22621) or newer; without it, ports inside WSL are not
-reachable from the LAN, which defeats the point. In an elevated PowerShell:
+Frontends are built with npm. The `.msi` installer needs admin; **the ZIP does
+not**:
+
+1. Download the Windows **.zip** build from nodejs.org.
+2. Extract it somewhere you can write, e.g. `C:\tools\node`.
+3. Either add that folder to your user PATH (Settings -> "Edit environment
+   variables for your account" — no admin needed), or set `LAUNCHER_NPM` to
+   the full path of `npm.cmd`.
+
+Skip this only if nobody will deploy an app with a frontend.
+
+### 3. Install the launcher
 
 ```powershell
-wsl --update
-wsl --install -d Ubuntu-24.04
+git clone -b claude/shared-server-app-launcher-s0h5cx `
+  https://github.com/ayushmansingh/DeploymentHandler.git C:\tools\applauncher
+cd C:\tools\applauncher
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
 ```
 
-`wsl --update` matters even on a fresh machine: mirrored networking needs a
-recent WSL release, which updates independently of Windows itself.
+### 4. Configure
 
-### 2. Configure WSL resources and networking
+Create `start-launcher.ps1` next to it:
 
-Copy `deploy/wslconfig.example` to `C:\Users\<you>\.wslconfig`, adjust the
-memory line, then `wsl --shutdown` and reopen Ubuntu.
-
-`networkingMode=mirrored` is the setting that makes this work: WSL shares the
-Windows network stack, so a port bound inside WSL is reachable from other
-machines on the network with no port forwarding.
-
-Two caveats worth knowing before you rely on it:
-
-- Mirrored mode can conflict with some corporate VPN clients and with other
-  hypervisors (VirtualBox, VMware). If the network misbehaves after enabling
-  it, that is the first thing to suspect.
-- Inbound traffic to WSL still passes through the Windows Firewall, so the
-  rules in step 5 are required, not optional.
-
-Confirm it took effect — this should print the Windows LAN IP, not a
-172.x.x.x address:
-
-```bash
-ip addr show eth0 | grep 'inet '
+```powershell
+$env:LAUNCHER_PUBLIC_HOST = "192.168.1.50"   # the server's LAN IP
+$env:LAUNCHER_DATA_DIR    = "C:\AppLauncherData"
+$env:LAUNCHER_NPM         = "C:\tools\node\npm.cmd"
+$env:LAUNCHER_MAX_BUILDS  = "2"
+C:\tools\applauncher\.venv\Scripts\python.exe -m uvicorn launcher.app:app `
+  --host 0.0.0.0 --port 8080
 ```
 
-### 3. Install Docker inside WSL
+`LAUNCHER_PUBLIC_HOST` matters: it is what appears in every link handed to
+your team. Left as `localhost`, those links only work on the server itself.
 
-```bash
-sudo apt update && sudo apt install -y docker.io python3-venv python3-pip
-sudo usermod -aG docker $USER   # log out and back in for this to apply
-```
+Give the machine a **static IP or a DHCP reservation** before anyone
+bookmarks anything — if the address moves, every saved link breaks at once.
 
-The launcher runs as a systemd service, so check systemd is enabled inside
-WSL — Ubuntu 24.04 enables it by default, but confirm:
+### 5. Verify
 
-```bash
-cat /etc/wsl.conf     # expect [boot] with systemd=true
-systemctl is-system-running   # "running" or "degraded" are both fine
-```
-
-If it is missing, add it and run `wsl --shutdown` from PowerShell:
-
-```ini
-[boot]
-systemd=true
-```
-
-Then:
-
-```bash
-sudo systemctl enable --now docker
-```
-
-### 4. Install the launcher
-
-```bash
-sudo git clone <this repo> /opt/applauncher
-cd /opt/applauncher
-sudo python3 -m venv .venv
-sudo .venv/bin/pip install -r requirements.txt
-```
-
-Edit `deploy/applauncher.service` and set `LAUNCHER_PUBLIC_HOST` to the
-server's LAN IP, then:
-
-```bash
-sudo cp deploy/applauncher.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now applauncher
-```
-
-### 5. Open the firewall and start WSL on boot
-
-Run `deploy/windows-firewall.ps1` in an elevated PowerShell.
-
-WSL does not start by itself at boot. Create a Task Scheduler task that runs
-at system startup, as SYSTEM, with:
-
-```
-wsl.exe -d Ubuntu-24.04 -u root /bin/true
-```
-
-That boots the distro; systemd then starts Docker and the launcher.
-
-### 6. Verify the install
-
-```bash
-sudo /opt/applauncher/.venv/bin/python /opt/applauncher/scripts/selftest.py
+```powershell
+.venv\Scripts\python scripts\selftest.py
 ```
 
 This builds a real FastAPI + Vite app, deploys it through the full pipeline,
 and confirms that `GET /` serves the frontend and `GET /api/ping` reaches the
-backend through nginx — the two things that prove the whole chain works. It
-cleans up after itself and exits non-zero on failure, so it is also usable as
-a smoke test after upgrades.
+backend through the front server. It cleans up after itself and exits non-zero
+on failure, so it also works as a smoke test after upgrades.
 
-Failures name the fix rather than dumping a traceback (`docker` not running,
-user not in the docker group, no disk space, dependencies missing).
+Failures name the fix rather than dumping a traceback (npm missing, `venv`
+unavailable, no disk space, dependencies not installed).
 
 ```
 --quick   skip the npm registry install (faster; does not test registry access)
 --keep    leave the sample app running so you can open it in a browser
 ```
 
-### If mirrored networking is unavailable
+### 6. Start it at logon
 
-On Windows 10, or an older Windows 11, WSL sits behind NAT and its ports are
-not reachable from the LAN. Options, best first: upgrade to Windows 11 22H2+;
-install Ubuntu Server on the machine directly (which also reclaims the RAM
-Windows is using); or maintain `netsh interface portproxy` rules per app port,
-re-applied whenever the WSL IP changes — workable but fragile, since this
-launcher allocates ports dynamically.
+Windows has no privileged-port restriction, so no elevation is needed to
+serve on 8080 or 80. For it to come back after a restart, put a shortcut to
+`start-launcher.ps1` in the Startup folder — press `Win+R`, run
+`shell:startup`, and drop it there. No admin required.
+
+Note the limitation: this starts when **someone logs in**. After an unattended
+reboot the launcher stays down until a person signs in. Running it as a true
+service that starts before logon does need administrator rights.
+
+## Running with containers instead
+
+If you ever get administrator access, or move this to a Linux machine, set
+`LAUNCHER_RUNTIME=docker` and everything runs in containers instead — with
+kernel-enforced memory and CPU limits, a private filesystem per app, and
+Docker's own restart policy. The upload experience is identical.
+
+On Windows that means enabling WSL (`wsl --install`, one elevated command),
+installing Docker Engine inside it, and setting `networkingMode=mirrored` in
+`.wslconfig` so ports inside WSL are reachable from the LAN. `deploy/` holds
+the sample `.wslconfig`, firewall script and systemd unit for that path.
+
+## What native mode does not give you
+
+Worth knowing, because these are real:
+
+- **Memory limits are soft.** The supervisor restarts an app that stays over
+  `LAUNCHER_APP_MEMORY_MB` for several checks, but nothing stops it spiking
+  hard between checks. Containers enforce this in the kernel.
+- **No filesystem isolation.** Apps run as the same user and can read each
+  other's files and data. Fine for a trusted internal team; not a boundary to
+  rely on.
+- **Node version conflicts are yours.** Python is isolated per app by its
+  venv; npm is not.
+- **WebSockets are not proxied.** Ordinary HTTP and streaming responses work.
 
 ## Configuration
 
@@ -205,10 +175,13 @@ All settings are environment variables (see `launcher/config.py`):
 | Variable | Default | Notes |
 |---|---|---|
 | `LAUNCHER_PUBLIC_HOST` | `localhost` | **Set this.** Appears in every link handed out |
-| `LAUNCHER_DATA_DIR` | `/var/lib/applauncher` | ZIPs, sources, logs, database |
-| `LAUNCHER_PORT_START` / `_END` | `20000` / `29999` | Host port range for apps |
+| `LAUNCHER_DATA_DIR` | `%LOCALAPPDATA%\AppLauncher` | ZIPs, sources, logs, database |
+| `LAUNCHER_RUNTIME` | `native` | `native` or `docker` |
+| `LAUNCHER_NPM` | auto-detected | Full path to `npm.cmd` if it is not on PATH |
+| `LAUNCHER_PORT_START` / `_END` | `20000` / `29999` | Public ports for apps |
+| `LAUNCHER_BACKEND_PORT_START` / `_END` | `30000` / `39999` | Loopback-only backend ports |
 | `LAUNCHER_MAX_BUILDS` | `2` | Concurrent builds. Each needs ~2GB |
-| `LAUNCHER_APP_MEMORY` | `1g` | Per-app memory cap |
+| `LAUNCHER_APP_MEMORY_MB` | `1024` | Soft per-app memory limit |
 | `LAUNCHER_KEEP_VERSIONS` | `5` | Uploads retained per app |
 
 ## What the uploader has to get right
@@ -230,6 +203,9 @@ frontend:
   output: dist
 ```
 
+Write the start command against port 8000; the launcher rewrites it to the
+port it actually assigned. `$PORT` also works.
+
 ## Failures are handled as text, not as debugging
 
 When a deploy fails the dashboard shows one plain sentence, and a **Copy error
@@ -243,7 +219,7 @@ Things caught automatically, before or during the build:
 - `node_modules`, `.venv`, `__pycache__` bundled into the ZIP (stripped)
 - a wrapper folder around the project (unwrapped)
 - **frontend hardcoded to `http://localhost:8000`** (caught before the build,
-  because it is the single most common failure and the slowest to discover)
+  because it is the most common failure and the slowest to discover)
 - Python packages that do not exist on PyPI
 - missing `build` script in `package.json`
 - the app building but never answering HTTP
@@ -253,8 +229,7 @@ Things caught automatically, before or during the build:
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
 .venv/bin/python -m pytest tests/ -q
-LAUNCHER_DATA_DIR=./data .venv/bin/uvicorn launcher.app:app --reload --port 8000
+LAUNCHER_DATA_DIR=./data .venv/bin/uvicorn launcher.app:app --reload --port 8080
 ```
 
-The test suite covers archive safety, detection, port allocation and error
-translation, and needs no Docker daemon.
+The test suite needs neither Docker nor a running server.

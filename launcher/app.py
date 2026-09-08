@@ -17,7 +17,7 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import config, db, deployer, errors, naming, ports, runtime
+from . import config, db, deployer, errors, naming, native, ports, runtime, supervisor
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -26,7 +26,13 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 async def lifespan(_: FastAPI):
     config.ensure_dirs()
     db.init()
+    if config.RUNTIME == "native":
+        # Apps do not survive a machine restart on their own, so bring back
+        # whatever was running before, then keep watching them.
+        supervisor.restore_on_startup()
+        supervisor.start_background()
     yield
+    supervisor.stop_background()
 
 
 app = FastAPI(
@@ -41,6 +47,31 @@ def _fmt_time(value: float | None) -> str:
 
 
 templates.env.filters["datetime"] = _fmt_time
+
+
+def runtime_state(row) -> str:
+    """A one-word description of what this app's processes are doing."""
+    if config.RUNTIME == "native":
+        if not row["front_pid"]:
+            return "stopped"
+        alive = native.is_running(row["front_pid"], f"--port {row['host_port']}")
+        return "running" if alive else "missing"
+    return runtime.container_state(row["container_id"] or "")
+
+
+def runtime_ready() -> tuple[bool, str]:
+    """Whether this server can currently build and run apps at all."""
+    if config.RUNTIME == "native":
+        tools = native.toolchain_report()
+        if not tools["npm"]:
+            return False, (
+                "Node.js was not found, so apps with a frontend cannot be built. "
+                "Backend-only apps still work."
+            )
+        return True, ""
+    if not runtime.docker_available():
+        return False, "Docker is not running on this server."
+    return True, ""
 
 
 def _app_url(row) -> str | None:
@@ -69,9 +100,10 @@ def dashboard(request: Request):
                 "latest": latest[0] if latest else None,
             }
         )
+    ready, problem = runtime_ready()
     return templates.TemplateResponse(
         request, "index.html",
-        {"apps": apps, "docker_ok": runtime.docker_available()},
+        {"apps": apps, "runtime_ready": ready, "runtime_problem": problem},
     )
 
 
@@ -190,7 +222,7 @@ def app_detail(request: Request, name: str, deploy: int | None = None):
     row = _require_app(name)
     deploys = db.list_deploys(int(row["id"]), limit=10)
     current = db.get_deploy(deploy) if deploy else (deploys[0] if deploys else None)
-    state = runtime.container_state(row["container_id"] or "")
+    state = runtime_state(row)
     return templates.TemplateResponse(
         request, "detail.html",
         {
@@ -259,18 +291,24 @@ def repair_prompt(name: str, deploy: int | None = None):
 @app.post("/app/{name}/stop")
 def stop_app(name: str):
     row = _require_app(name)
-    runtime.stop_container(row["container_id"] or "", remove=False)
+    # Set the status first: the supervisor only tends apps marked live, so
+    # this stops it deciding the app has crashed and starting it again.
     db.update_app(int(row["id"]), status="stopped")
+    if config.RUNTIME == "native":
+        supervisor.stop(row)
+    else:
+        runtime.stop_container(row["container_id"] or "", remove=False)
     return RedirectResponse(f"/app/{name}", status_code=303)
 
 
 @app.post("/app/{name}/start")
 def start_app(name: str):
     row = _require_app(name)
-    container = row["container_id"] or ""
-    if container:
+    if config.RUNTIME == "native":
+        supervisor.launch(row, reason="Started from the dashboard.")
+    elif row["container_id"]:
         try:
-            runtime._run(["docker", "start", container])
+            runtime._run(["docker", "start", row["container_id"]])
             db.update_app(int(row["id"]), status="live")
         except runtime.DockerError:
             db.update_app(int(row["id"]), status="failed")
@@ -300,9 +338,13 @@ def rollback(name: str, deploy_id: int):
 @app.post("/app/{name}/delete")
 def delete_app(name: str):
     row = _require_app(name)
-    runtime.stop_container(row["container_id"] or "")
-    if row["image_tag"]:
-        runtime.remove_image(row["image_tag"])
+    db.update_app(int(row["id"]), status="stopped")  # keep the supervisor off it
+    if config.RUNTIME == "native":
+        supervisor.stop(row)
+    else:
+        runtime.stop_container(row["container_id"] or "")
+        if row["image_tag"]:
+            runtime.remove_image(row["image_tag"])
     ports.release(int(row["id"]))
     db.delete_app(int(row["id"]))
     shutil.rmtree(config.SRC_DIR / name, ignore_errors=True)
@@ -313,7 +355,19 @@ def delete_app(name: str):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "docker": runtime.docker_available(), "apps": len(db.list_apps())}
+    ready, problem = runtime_ready()
+    payload = {
+        "ok": ready,
+        "runtime": config.RUNTIME,
+        "apps": len(db.list_apps()),
+    }
+    if config.RUNTIME == "native":
+        payload["toolchain"] = native.toolchain_report()
+    else:
+        payload["docker"] = runtime.docker_available()
+    if problem:
+        payload["problem"] = problem
+    return payload
 
 
 def _error_page(request: Request, message: str) -> HTMLResponse:

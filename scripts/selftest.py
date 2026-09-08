@@ -135,13 +135,60 @@ def check_prerequisites() -> bool:
         ok(f"Python {sys.version_info.major}.{sys.version_info.minor}")
 
     try:
-        import fastapi, jinja2, multipart, yaml  # noqa: F401
+        import fastapi, httpx, jinja2, multipart, psutil, yaml  # noqa: F401
         ok("Python dependencies are installed")
     except ImportError as exc:
         bad(f"A dependency is missing: {exc.name}",
             "Run: .venv/bin/pip install -r requirements.txt")
+        return False
+
+    from launcher import config
+
+    note(f"Runtime: {config.RUNTIME}")
+    if config.RUNTIME == "native":
+        healthy = _check_native() and healthy
+    else:
+        healthy = _check_docker() and healthy
+
+    config.ensure_dirs()
+    free_gb = shutil.disk_usage(config.DATA_DIR).free / 1024**3
+    needed = 20 if config.RUNTIME == "docker" else 5
+    if free_gb < needed:
+        bad(f"Only {free_gb:.0f} GB free where apps are stored ({config.DATA_DIR})",
+            "Free some space before deploying apps.")
+        healthy = False
+    else:
+        ok(f"{free_gb:.0f} GB free at {config.DATA_DIR}")
+
+    return healthy
+
+
+def _check_native() -> bool:
+    """Native mode needs a Python that can build venvs, and npm for frontends."""
+    from launcher import native
+
+    healthy = True
+    try:
+        import venv  # noqa: F401
+        ok("Python can create virtual environments")
+    except ImportError:
+        bad("The venv module is missing",
+            "On Debian or Ubuntu run: sudo apt install python3-venv")
         healthy = False
 
+    tools = native.toolchain_report()
+    if tools["npm"]:
+        ok(f"npm found at {tools['npm']}")
+    else:
+        bad("npm was not found, so apps with a frontend cannot be built",
+            "Install Node.js - the portable ZIP needs no administrator rights - "
+            "then add it to PATH or set LAUNCHER_NPM to the full path of npm.")
+        healthy = False
+
+    return healthy
+
+
+def _check_docker() -> bool:
     if shutil.which("docker") is None:
         bad("The docker command was not found",
             "Inside WSL run: sudo apt install -y docker.io")
@@ -158,17 +205,7 @@ def check_prerequisites() -> bool:
             "docker group: sudo usermod -aG docker $USER, then log out and in)")
         return False
     ok(f"Docker daemon {probe.stdout.strip()} is running")
-
-    usage = shutil.disk_usage("/var/lib")
-    free_gb = usage.free / 1024**3
-    if free_gb < 20:
-        bad(f"Only {free_gb:.0f} GB free on /var/lib",
-            "Container images need room. Free space or run: docker image prune -a")
-        healthy = False
-    else:
-        ok(f"{free_gb:.0f} GB free for container images")
-
-    return healthy
+    return True
 
 
 def fetch(url: str, timeout: int = 10) -> tuple[int, str]:
@@ -200,7 +237,7 @@ def run_pipeline(zip_path: Path) -> tuple[bool, int | None]:
         app_id, str(stored_zip), uploaded_by="selftest", log_path=str(log_path)
     )
 
-    note("Building the sample app. The first run pulls base images and can "
+    note("Building the sample app. The first run installs packages and can "
          "take several minutes.")
     started = time.time()
     deployer.run_deploy(deploy_id)
@@ -218,7 +255,10 @@ def run_pipeline(zip_path: Path) -> tuple[bool, int | None]:
 
 
 def check_serving(port: int) -> bool:
+    from launcher import config
+
     step("Checking the running app")
+    front = "nginx" if config.RUNTIME == "docker" else "the front server"
     healthy = True
 
     status, body = fetch(f"http://127.0.0.1:{port}/")
@@ -226,31 +266,35 @@ def check_serving(port: int) -> bool:
         ok("GET /  serves the built frontend")
     else:
         bad(f"GET / returned HTTP {status} without the expected content",
-            "The frontend build output was not copied into the image. Check "
-            "the 'output' directory in launcher/detect.py matches the build tool.")
+            "The frontend build output was not found. Check that the 'output' "
+            "directory in launcher/detect.py matches what the build tool writes.")
         healthy = False
 
     status, body = fetch(f"http://127.0.0.1:{port}/api/ping")
     if status == 200 and MARKER in body:
-        ok("GET /api/ping  reaches the Python backend through nginx")
+        ok(f"GET /api/ping  reaches the Python backend through {front}")
     else:
         bad(f"GET /api/ping returned HTTP {status}: {body[:200]}",
-            "nginx could not reach the backend on 127.0.0.1:8000. Check the "
-            "generated .launcher/nginx.conf and that the backend bound 0.0.0.0.")
+            "The front server could not reach the app's backend. Check the "
+            "app's runtime.log for why the backend exited.")
         healthy = False
 
     return healthy
 
 
 def cleanup() -> None:
-    from launcher import config, db, ports, runtime
+    from launcher import config, db, ports, runtime, supervisor
 
     row = db.get_app_by_name(APP_NAME)
     if row is None:
         return
-    runtime.stop_container(row["container_id"] or "")
-    if row["image_tag"]:
-        runtime.remove_image(row["image_tag"])
+    db.update_app(int(row["id"]), status="stopped")  # keep the supervisor off it
+    if config.RUNTIME == "native":
+        supervisor.stop(row)
+    else:
+        runtime.stop_container(row["container_id"] or "")
+        if row["image_tag"]:
+            runtime.remove_image(row["image_tag"])
     ports.release(int(row["id"]))
     db.delete_app(int(row["id"]))
     for directory in (config.SRC_DIR, config.UPLOAD_DIR, config.LOG_DIR):

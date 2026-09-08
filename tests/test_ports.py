@@ -54,3 +54,38 @@ def test_release_frees_the_port(store):
     ports.release(app_id)
     assert ports.allocated_port(app_id) is None
     assert port not in ports.in_use()
+
+
+def test_public_and_backend_ports_come_from_different_ranges(store, monkeypatch):
+    monkeypatch.setattr(config, "BACKEND_PORT_START", 31000)
+    monkeypatch.setattr(config, "BACKEND_PORT_END", 31009)
+    app_id = db.create_app("alpha")
+
+    public = ports.allocate(app_id, ports.PUBLIC)
+    backend = ports.allocate(app_id, ports.BACKEND)
+
+    assert config.PORT_RANGE_START <= public <= config.PORT_RANGE_END
+    assert 31000 <= backend <= 31009
+    assert public != backend
+
+
+def test_both_roles_are_stable_across_restarts(store, monkeypatch):
+    monkeypatch.setattr(config, "BACKEND_PORT_START", 31100)
+    monkeypatch.setattr(config, "BACKEND_PORT_END", 31109)
+    app_id = db.create_app("alpha")
+
+    assert ports.allocate(app_id, ports.PUBLIC) == ports.allocate(app_id, ports.PUBLIC)
+    assert ports.allocate(app_id, ports.BACKEND) == ports.allocate(app_id, ports.BACKEND)
+
+
+def test_release_frees_every_role(store, monkeypatch):
+    monkeypatch.setattr(config, "BACKEND_PORT_START", 31200)
+    monkeypatch.setattr(config, "BACKEND_PORT_END", 31209)
+    app_id = db.create_app("alpha")
+    ports.allocate(app_id, ports.PUBLIC)
+    ports.allocate(app_id, ports.BACKEND)
+
+    ports.release(app_id)
+
+    assert ports.allocated_port(app_id, ports.PUBLIC) is None
+    assert ports.allocated_port(app_id, ports.BACKEND) is None
