@@ -16,7 +16,14 @@
 {% endif %}
 
 {% if current and current['status'] == 'failed' and current['error_summary'] %}
-<div class="banner bad"><strong>Deploy failed.</strong> {{ current['error_summary'] }}</div>
+<div class="banner bad">
+  <strong>{% if app['status'] == 'live' %}The new version failed to deploy.{% else %}Deploy failed.{% endif %}</strong>
+  {{ current['error_summary'] }}
+  {% if app['status'] == 'live' %}
+  <div style="margin-top:6px">Your app is still running the previous version, so
+    nothing went offline. Fix the ZIP and replace it below.</div>
+  {% endif %}
+</div>
 {% endif %}
 
 <div class="card">
@@ -27,6 +34,31 @@
     {% if url %}<a class="btn" href="{{ url }}" target="_blank">Open app</a>{% endif %}
   </div>
   <pre class="log" id="log">Loading...</pre>
+</div>
+
+<div class="card">
+  <strong>Replace with a newer ZIP</strong>
+  <p class="muted" style="font-size:13px;margin:4px 0 0">
+    Keeps the name <code>{{ app['name'] }}</code> and the same link{% if url %}
+    (<a href="{{ url }}" target="_blank">{{ url }}</a>){% endif %}.
+    The current version keeps running until the new one is built and answering.</p>
+  <form method="post" action="/app/{{ app['name'] }}/replace" enctype="multipart/form-data">
+    <label for="file">New ZIP file</label>
+    <input type="file" id="file" name="file" accept=".zip,application/zip" required>
+
+    <label for="uploaded_by">Your name</label>
+    <input type="text" id="uploaded_by" name="uploaded_by"
+           value="{{ app['owner'] or '' }}" placeholder="Priya">
+
+    <label style="font-weight:400;margin-top:14px">
+      <input type="checkbox" name="stop_current" value="1" style="width:auto">
+      Stop the current version first
+      <span class="muted">(only needed if both versions would fight over the
+      same file, database or device - the app will be offline while it builds)</span>
+    </label>
+
+    <p style="margin:16px 0 0"><button type="submit" class="primary">Replace</button></p>
+  </form>
 </div>
 
 <div class="card">

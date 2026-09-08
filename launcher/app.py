@@ -11,6 +11,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -20,13 +22,16 @@ from . import config, db, deployer, errors, naming, ports, runtime
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-app = FastAPI(title="App Launcher", docs_url=None, redoc_url=None)
-
-
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def lifespan(_: FastAPI):
     config.ensure_dirs()
     db.init()
+    yield
+
+
+app = FastAPI(
+    title="App Launcher", docs_url=None, redoc_url=None, lifespan=lifespan
+)
 
 
 def _fmt_time(value: float | None) -> str:
@@ -65,8 +70,55 @@ def dashboard(request: Request):
             }
         )
     return templates.TemplateResponse(
-        "index.html",
-        {"request": request, "apps": apps, "docker_ok": runtime.docker_available()},
+        request, "index.html",
+        {"apps": apps, "docker_ok": runtime.docker_available()},
+    )
+
+
+class UploadTooLarge(Exception):
+    """The uploaded file exceeded the configured cap mid-stream."""
+
+
+async def _store_upload(app_name: str, file: UploadFile, stamp: str) -> Path:
+    """Stream an upload to disk under a hard size cap.
+
+    Written incrementally rather than read into memory, so a 2GB upload from
+    someone who zipped their node_modules cannot exhaust RAM or fill the disk
+    before we get a chance to reject it.
+    """
+    dest_dir = config.UPLOAD_DIR / app_name
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = dest_dir / f"{stamp}.zip"
+
+    written = 0
+    try:
+        with open(zip_path, "wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > config.MAX_UPLOAD_BYTES:
+                    raise UploadTooLarge
+                out.write(chunk)
+    except UploadTooLarge:
+        zip_path.unlink(missing_ok=True)
+        raise
+    return zip_path
+
+
+def _queue_deploy(app_id: int, app_name: str, zip_path: Path, uploaded_by: str,
+                  stamp: str) -> int:
+    log_path = config.LOG_DIR / app_name / f"{stamp}.log"
+    deploy_id = db.create_deploy(
+        app_id, str(zip_path), uploaded_by=uploaded_by, log_path=str(log_path)
+    )
+    deployer.enqueue(deploy_id)
+    return deploy_id
+
+
+def _too_large_message() -> str:
+    limit_mb = config.MAX_UPLOAD_BYTES // (1024 * 1024)
+    return (
+        f"That ZIP is larger than {limit_mb} MB. This almost always means it "
+        "contains a node_modules folder \u2014 please zip only your source code."
     )
 
 
@@ -85,38 +137,52 @@ async def upload(
     except naming.InvalidName as exc:
         return _error_page(request, str(exc))
 
-    # Stream to disk with a hard size cap, so a huge upload cannot fill the
-    # disk before we have a chance to reject it.
-    dest_dir = config.UPLOAD_DIR / app_name
-    dest_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-    zip_path = dest_dir / f"{stamp}.zip"
-
-    written = 0
-    with open(zip_path, "wb") as out:
-        while chunk := await file.read(1024 * 1024):
-            written += len(chunk)
-            if written > config.MAX_UPLOAD_BYTES:
-                out.close()
-                zip_path.unlink(missing_ok=True)
-                limit_mb = config.MAX_UPLOAD_BYTES // (1024 * 1024)
-                return _error_page(
-                    request,
-                    f"That ZIP is larger than {limit_mb} MB. This almost always "
-                    "means it contains a node_modules folder — please zip only "
-                    "your source code.",
-                )
-            out.write(chunk)
+    try:
+        zip_path = await _store_upload(app_name, file, stamp)
+    except UploadTooLarge:
+        return _error_page(request, _too_large_message())
 
     row = db.get_app_by_name(app_name)
     app_id = int(row["id"]) if row else db.create_app(app_name, owner=uploaded_by.strip())
 
-    log_path = config.LOG_DIR / app_name / f"{stamp}.log"
-    deploy_id = db.create_deploy(
-        app_id, str(zip_path), uploaded_by=uploaded_by.strip(), log_path=str(log_path)
-    )
-    deployer.enqueue(deploy_id)
+    deploy_id = _queue_deploy(app_id, app_name, zip_path, uploaded_by.strip(), stamp)
     return RedirectResponse(f"/app/{app_name}?deploy={deploy_id}", status_code=303)
+
+
+@app.post("/app/{name}/replace")
+async def replace_app(
+    request: Request,
+    name: str,
+    uploaded_by: str = Form(""),
+    stop_current: str = Form(""),
+    file: UploadFile = None,  # type: ignore[assignment]
+):
+    """Replace a running app with a newer ZIP, keeping its name and link.
+
+    By default the current version keeps serving while the new one builds and
+    is only swapped out once the new one is proven to answer HTTP, so a broken
+    upload cannot take a working dashboard offline. Ticking "stop_current"
+    takes it down first, which is what you want when the old and new versions
+    cannot both hold the same resource - a file, a database, a device.
+    """
+    row = _require_app(name)
+    if file is None or not file.filename:
+        return _error_page(request, "Please choose a ZIP file to upload.")
+
+    stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+    try:
+        zip_path = await _store_upload(name, file, stamp)
+    except UploadTooLarge:
+        return _error_page(request, _too_large_message())
+
+    if stop_current:
+        runtime.stop_container(row["container_id"] or "", remove=False)
+        db.update_app(int(row["id"]), status="stopped")
+
+    uploader = uploaded_by.strip() or (row["owner"] or "")
+    deploy_id = _queue_deploy(int(row["id"]), name, zip_path, uploader, stamp)
+    return RedirectResponse(f"/app/{name}?deploy={deploy_id}", status_code=303)
 
 
 @app.get("/app/{name}", response_class=HTMLResponse)
@@ -126,9 +192,8 @@ def app_detail(request: Request, name: str, deploy: int | None = None):
     current = db.get_deploy(deploy) if deploy else (deploys[0] if deploys else None)
     state = runtime.container_state(row["container_id"] or "")
     return templates.TemplateResponse(
-        "detail.html",
+        request, "detail.html",
         {
-            "request": request,
             "app": row,
             "url": _app_url(row),
             "deploys": deploys,
@@ -253,5 +318,5 @@ def healthz():
 
 def _error_page(request: Request, message: str) -> HTMLResponse:
     return templates.TemplateResponse(
-        "error.html", {"request": request, "message": message}, status_code=400
+        request, "error.html", {"message": message}, status_code=400
     )

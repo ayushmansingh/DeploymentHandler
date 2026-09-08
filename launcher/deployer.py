@@ -110,6 +110,27 @@ def _fail(deploy_id: int, log: _Log, diagnosis: errors.Diagnosis) -> None:
     db.finish_deploy(deploy_id, "failed", diagnosis.summary)
 
 
+def _apply_failure_status(app_row, log: _Log, swapped: bool) -> None:
+    """Set the app's status after a failed deploy.
+
+    Until the container swap happens the previous version is still up and
+    serving traffic, so a failed build must not report the app as down - that
+    would send someone chasing an outage that never happened.
+    """
+    app_id = int(app_row["id"])
+    if swapped:
+        db.update_app(app_id, status="failed")
+        return
+    if runtime.container_state(app_row["container_id"] or "") == "running":
+        log.line(
+            "[launcher] Your previous version is still running - nothing was "
+            "taken offline."
+        )
+        db.update_app(app_id, status="live")
+    else:
+        db.update_app(app_id, status="failed")
+
+
 def run_deploy(deploy_id: int) -> None:
     """Execute one deploy end to end. Never raises; failures land in the log."""
     deploy = db.get_deploy(deploy_id)
@@ -123,6 +144,9 @@ def run_deploy(deploy_id: int) -> None:
     log = _Log(Path(deploy["log_path"]))
     db.set_deploy_status(deploy_id, "building")
     db.update_app(app["id"], status="building")
+
+    # Until the new container is started the old one is still serving.
+    swapped = False
 
     try:
         log.line(f"[launcher] Deploying {name}...")
@@ -146,7 +170,7 @@ def run_deploy(deploy_id: int) -> None:
             leak = _scan_for_localhost(src, spec.frontend.path)
             if leak:
                 _fail(deploy_id, log, leak)
-                db.update_app(app["id"], status="failed")
+                _apply_failure_status(app, log, swapped)
                 return
 
         # 4. Generate the container recipe and build it.
@@ -156,7 +180,7 @@ def run_deploy(deploy_id: int) -> None:
         code = runtime.build_image(src, tag, log.write)
         if code != 0:
             _fail(deploy_id, log, errors.diagnose(log.read()))
-            db.update_app(app["id"], status="failed")
+            _apply_failure_status(app, log, swapped)
             return
 
         # 5. Allocate the app's stable port and swap the container.
@@ -170,6 +194,7 @@ def run_deploy(deploy_id: int) -> None:
         runtime.remove_container_by_name(name)
 
         container_id = runtime.run_container(tag, name, host_port)
+        swapped = True
         log.line(f"[launcher] Started container {container_id[:12]}.")
         db.update_app(
             app["id"], container_id=container_id, image_tag=tag, host_port=host_port
@@ -183,7 +208,7 @@ def run_deploy(deploy_id: int) -> None:
                 "Your app was built successfully but did not start. " + diagnosis.summary
             )
             _fail(deploy_id, log, diagnosis)
-            db.update_app(app["id"], status="failed")
+            _apply_failure_status(app, log, swapped)
             return
 
         url = f"http://{config.PUBLIC_HOST}:{host_port}"
@@ -194,7 +219,7 @@ def run_deploy(deploy_id: int) -> None:
 
     except (archive.ArchiveError, detect.DetectionError) as exc:
         _fail(deploy_id, log, errors.Diagnosis(summary=str(exc), detail=None, hint=None))
-        db.update_app(app["id"], status="failed")
+        _apply_failure_status(app, log, swapped)
     except ports.NoPortsAvailable as exc:
         _fail(
             deploy_id, log,
@@ -204,7 +229,7 @@ def run_deploy(deploy_id: int) -> None:
                 hint="Ask the server administrator to remove unused apps.",
             ),
         )
-        db.update_app(app["id"], status="failed")
+        _apply_failure_status(app, log, swapped)
     except Exception as exc:  # noqa: BLE001 - the queue must never die
         log.line(f"\n[launcher] Unexpected error: {exc!r}")
         _fail(
@@ -215,7 +240,7 @@ def run_deploy(deploy_id: int) -> None:
                 hint="Send this log to the server administrator.",
             ),
         )
-        db.update_app(app["id"], status="failed")
+        _apply_failure_status(app, log, swapped)
 
 
 def _prune_old_versions(name: str) -> None:

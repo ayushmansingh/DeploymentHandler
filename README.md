@@ -17,6 +17,19 @@ Re-uploading under the same name updates the app and **keeps the same link**.
 Every upload is retained, so any previous version can be restored with one
 click.
 
+### Replacing a running app
+
+Each app's page has a **Replace with a newer ZIP** form. The current version
+keeps serving while the new one builds, and is swapped out only once the new
+one is proven to answer HTTP — so a broken upload cannot take a working
+dashboard offline. If the build fails, the dashboard says so and the old
+version stays up.
+
+Tick **Stop the current version first** when the two versions cannot both be
+running at once — typically when they would contend for the same file, SQLite
+database, or hardware device. That accepts downtime for the length of the
+build in exchange for a clean handover.
+
 Nobody on the team ever sees Docker, a terminal, or a port number they have to
 manage.
 
@@ -103,6 +116,26 @@ wsl.exe -d Ubuntu-24.04 -u root /bin/true
 ```
 
 That boots the distro; systemd then starts Docker and the launcher.
+
+### 6. Verify the install
+
+```bash
+sudo /opt/applauncher/.venv/bin/python /opt/applauncher/scripts/selftest.py
+```
+
+This builds a real FastAPI + Vite app, deploys it through the full pipeline,
+and confirms that `GET /` serves the frontend and `GET /api/ping` reaches the
+backend through nginx — the two things that prove the whole chain works. It
+cleans up after itself and exits non-zero on failure, so it is also usable as
+a smoke test after upgrades.
+
+Failures name the fix rather than dumping a traceback (`docker` not running,
+user not in the docker group, no disk space, dependencies missing).
+
+```
+--quick   skip the npm registry install (faster; does not test registry access)
+--keep    leave the sample app running so you can open it in a browser
+```
 
 ### Windows 10 fallback
 
