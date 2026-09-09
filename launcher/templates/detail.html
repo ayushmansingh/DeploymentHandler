@@ -1,46 +1,18 @@
 {% extends "base.html" %}
 {% block title %}{{ app['name'] }} - App Launcher{% endblock %}
 {% block body %}
-<h1>{{ app['name'] }}</h1>
-<p class="sub">
-  <span class="pill {{ app['status'] }}">{{ app['status'] }}</span>
-  {% if app['kind'] != 'unknown' %}<span class="muted">&nbsp;{{ app['kind'] }}</span>{% endif %}
-  {% if app['owner'] %}<span class="muted">&nbsp;· uploaded by {{ app['owner'] }}</span>{% endif %}
-</p>
-
-<div id="result"></div>
-
-{% if url and app['status'] == 'live' %}
-<div class="banner ok"><strong>Your app is live:</strong>
-  <a href="{{ url }}" target="_blank">{{ url }}</a></div>
-{% endif %}
-
-{% if current and current['status'] == 'failed' and current['error_summary'] %}
-<div class="banner bad">
-  <strong>{% if app['status'] == 'live' %}The new version failed to deploy.{% else %}Deploy failed.{% endif %}</strong>
-  {{ current['error_summary'] }}
-  {% if app['status'] == 'live' %}
-  <div style="margin-top:6px">Your app is still running the previous version, so
-    nothing went offline. Fix the ZIP and replace it below.</div>
-  {% endif %}
+<div class="page-head">
+  <h1>{{ app['name'] }}</h1>
+  <a class="btn" href="/">All applications</a>
 </div>
-{% endif %}
 
-<div class="card">
-  <div class="row" style="margin-bottom:12px">
-    <strong style="margin-right:auto">Build log</strong>
-    <button id="copy-error" data-deploy="{{ current['id'] if current else '' }}">
-      Copy error for AI</button>
-    {% if url %}<a class="btn" href="{{ url }}" target="_blank">Open app</a>{% endif %}
-  </div>
-  <pre class="log" id="log">Loading...</pre>
-</div>
+<div id="status-region">{% include "_appstatus.html" %}</div>
 
 <div class="card">
   <strong>Replace with a newer ZIP</strong>
   <p class="muted" style="font-size:13px;margin:4px 0 0">
     Keeps the name <code>{{ app['name'] }}</code> and the same link{% if url %}
-    (<a href="{{ url }}" target="_blank">{{ url }}</a>){% endif %}.
+    (<a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>){% endif %}.
     The current version keeps running until the new one is built and answering.</p>
   <form method="post" action="/app/{{ app['name'] }}/replace" enctype="multipart/form-data">
     <label for="file">New ZIP file</label>
@@ -70,13 +42,24 @@
     folder. Deleting the app deletes this too.</p>
 </div>
 
+<details class="card" id="logbox">
+  <summary>Build log</summary>
+  <div class="logbar">
+    <button type="button" id="refresh-log">Refresh</button>
+    <button type="button" class="copy-error" data-deploy="{{ current['id'] if current else '' }}">
+      Copy error for AI</button>
+    <span class="stamp" id="log-stamp"></span>
+  </div>
+  <pre class="log" id="log">Open to load the log.</pre>
+</details>
+
 <div class="card">
   <div class="row">
     <form method="post" action="/app/{{ app['name'] }}/stop"><button>Stop</button></form>
     <form method="post" action="/app/{{ app['name'] }}/start"><button>Start</button></form>
-    <span class="muted">container: {{ container_state }}</span>
+    <span class="muted">processes: {{ container_state }}</span>
     <form method="post" action="/app/{{ app['name'] }}/delete" style="margin-left:auto"
-          onsubmit="return confirm('Delete {{ app['name'] }} and all its versions?')">
+          onsubmit="return confirm('Delete {{ app['name'] }}, its versions and its saved files?')">
       <button class="danger">Delete app</button></form>
   </div>
 </div>
@@ -102,36 +85,68 @@
 const appName = {{ app['name'] | tojson }};
 const deployId = {{ (current['id'] if current else None) | tojson }};
 const query = deployId ? ("?deploy=" + deployId) : "";
+
+const statusRegion = document.getElementById("status-region");
+const logBox = document.getElementById("logbox");
 const logEl = document.getElementById("log");
-let settled = false;
+const stampEl = document.getElementById("log-stamp");
 
-async function refresh() {
-  try {
-    const [logText, status] = await Promise.all([
-      fetch(`/app/${appName}/log${query}`).then(r => r.text()),
-      fetch(`/app/${appName}/status${query}`).then(r => r.json()),
-    ]);
-    // Only auto-scroll when the user is already at the bottom, so reading
-    // back through a long log is not yanked away on each poll.
-    const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
-    logEl.textContent = logText || "Waiting for the build to start...";
-    if (atBottom) logEl.scrollTop = logEl.scrollHeight;
-
-    if (["live", "failed"].includes(status.deploy_status)) {
-      if (!settled) { settled = true; setTimeout(() => location.reload(), 800); }
-      return;
-    }
-  } catch (err) { /* transient; try again on the next tick */ }
-  setTimeout(refresh, 1500);
+function deployStatus() {
+  const marker = statusRegion.querySelector("[data-deploy-status]");
+  return marker ? marker.dataset.deployStatus : "none";
 }
-refresh();
 
-document.getElementById("copy-error").addEventListener("click", async (ev) => {
-  const btn = ev.currentTarget;
-  const text = await fetch(`/app/${appName}/repair-prompt${query}`).then(r => r.text());
+function inProgress() {
+  return ["queued", "building"].includes(deployStatus());
+}
+
+// --- log: loaded on demand, never on a timer unless it is open and building
+async function loadLog() {
+  try {
+    const text = await fetch(`/app/${appName}/log${query}`).then(r => r.text());
+    const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+    logEl.textContent = text || "Nothing logged yet.";
+    if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+    stampEl.textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (err) {
+    stampEl.textContent = "could not load the log";
+  }
+}
+
+let loaded = false;
+logBox.addEventListener("toggle", () => {
+  if (logBox.open && !loaded) { loaded = true; loadLog(); }
+});
+document.getElementById("refresh-log").addEventListener("click", loadLog);
+
+// --- status: polled only while a deploy is actually running, then it stops.
+// The page is never reloaded; only this region is replaced, so clicking a
+// button is never interrupted by the page changing under it.
+async function pollStatus() {
+  if (!inProgress()) return;
+  try {
+    const html = await fetch(`/app/${appName}/partial-status${query}`).then(r => r.text());
+    statusRegion.innerHTML = html;
+    if (logBox.open) loadLog();
+  } catch (err) { /* transient; try again on the next tick */ }
+  if (inProgress()) {
+    setTimeout(pollStatus, 2500);
+  } else if (logBox.open) {
+    loadLog();
+  }
+}
+if (inProgress()) setTimeout(pollStatus, 2500);
+
+// Delegated, so it keeps working after the status region is replaced.
+document.addEventListener("click", async (ev) => {
+  const btn = ev.target.closest(".copy-error");
+  if (!btn) return;
+  const deploy = btn.dataset.deploy ? ("?deploy=" + btn.dataset.deploy) : query;
+  const text = await fetch(`/app/${appName}/repair-prompt${deploy}`).then(r => r.text());
   await navigator.clipboard.writeText(text);
+  const original = btn.textContent;
   btn.textContent = "Copied - paste into Claude";
-  setTimeout(() => { btn.textContent = "Copy error for AI"; }, 4000);
+  setTimeout(() => { btn.textContent = original; }, 4000);
 });
 </script>
 {% endblock %}

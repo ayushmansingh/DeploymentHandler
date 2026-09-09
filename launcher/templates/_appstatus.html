@@ -1,0 +1,36 @@
+{# The part of an app's page that changes while a deploy runs. Swapped in
+   place by the page's poller so nothing ever reloads under the reader. #}
+<div data-deploy-status="{{ current['status'] if current else 'none' }}">
+  <p class="sub">
+    <span class="pill {{ app['status'] }}">{{ app['status'] }}</span>
+    {% if app['kind'] != 'unknown' %}<span class="muted">&nbsp;{{ app['kind'] }}</span>{% endif %}
+    {% if app['owner'] %}<span class="muted">&nbsp;· uploaded by {{ app['owner'] }}</span>{% endif %}
+  </p>
+
+  {% if current and current['status'] in ('queued', 'building') %}
+  <div class="banner working">
+    <strong>{% if current['status'] == 'queued' %}Waiting to build…{% else %}Building…{% endif %}</strong>
+    This usually takes one to three minutes. You can leave this page open or
+    come back later.
+  </div>
+  {% endif %}
+
+  {% if url and app['status'] == 'live' %}
+  <div class="banner ok"><strong>Your app is live:</strong>
+    <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a></div>
+  {% endif %}
+
+  {% if current and current['status'] == 'failed' and current['error_summary'] %}
+  <div class="banner bad">
+    <strong>{% if app['status'] == 'live' %}The new version failed to deploy.{% else %}Deploy failed.{% endif %}</strong>
+    {{ current['error_summary'] }}
+    {% if app['status'] == 'live' %}
+    <div style="margin-top:6px">Your app is still running the previous version,
+      so nothing went offline. Fix the ZIP and replace it below.</div>
+    {% endif %}
+    <div style="margin-top:10px">
+      <button class="copy-error" data-deploy="{{ current['id'] }}">Copy error for AI</button>
+    </div>
+  </div>
+  {% endif %}
+</div>

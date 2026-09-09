@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import config
+from .files import remove_tree
 
 
 class ArchiveError(Exception):
@@ -110,8 +111,12 @@ def extract(zip_path: Path, dest: Path) -> ExtractResult:
             "loose files, select them all and upload them together instead."
         )
 
-    if dest.exists():
-        shutil.rmtree(dest)
+    if not remove_tree(dest):
+        raise ArchiveError(
+            "The previous version of this app could not be removed from the "
+            "server. Something may still be using its files - try again in a "
+            "moment, or ask the server administrator."
+        )
     dest.mkdir(parents=True)
 
     with zipfile.ZipFile(zip_path) as zf:

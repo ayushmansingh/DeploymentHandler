@@ -76,18 +76,32 @@ NOT SUPPORTED - do not use these
 </details>
 
 <script>
-// Refresh the grid in place so a deploy in progress turns into a working link
-// without anyone reaching for F5. Paused while the tab is in the background.
+// Refresh the grid so a deploy in progress becomes a working link on its own.
+// Two rules keep it from feeling twitchy: the markup is only swapped when it
+// has actually changed, and once nothing is building the poll drops to a slow
+// background check.
 const appsEl = document.getElementById("apps");
+const BUSY_MS = 3000;
+const IDLE_MS = 20000;
+
+function isBusy() {
+  const marker = appsEl.querySelector("[data-busy]");
+  return marker ? marker.dataset.busy === "1" : false;
+}
 
 async function refreshApps() {
+  let wait = isBusy() ? BUSY_MS : IDLE_MS;
   if (!document.hidden) {
     try {
-      appsEl.innerHTML = await fetch("/partials/apps").then(r => r.text());
+      const html = await fetch("/partials/apps").then(r => r.text());
+      // Only touch the DOM when something differs, so nothing flickers and
+      // nothing moves out from under a click.
+      if (html.trim() !== appsEl.innerHTML.trim()) appsEl.innerHTML = html;
+      wait = isBusy() ? BUSY_MS : IDLE_MS;
     } catch (err) { /* transient; try again on the next tick */ }
   }
-  setTimeout(refreshApps, 5000);
+  setTimeout(refreshApps, wait);
 }
-setTimeout(refreshApps, 5000);
+setTimeout(refreshApps, isBusy() ? BUSY_MS : IDLE_MS);
 </script>
 {% endblock %}

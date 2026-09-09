@@ -1,6 +1,7 @@
 {# The app grid. Rendered into the page on load, and re-fetched by the
    dashboard's poll so a building app updates in place. Kept in one file so
    the two paths cannot drift apart. #}
+<div data-busy="{{ 1 if busy else 0 }}">
 <p class="sub" id="app-count">
   {% if apps %}
     {{ live_count }} of {{ apps | length }} running
@@ -55,3 +56,4 @@
   {% endfor %}
   </div>
 {% endif %}
+</div>

@@ -43,9 +43,13 @@
   .banner { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
   .banner.bad { background: #fdeceb; border: 1px solid #f3c9c6; color: #7d211a; }
   .banner.ok { background: #e4f4ea; border: 1px solid #bfe3cd; color: #13603a; }
+  .banner.working { background: #fdf3e0; border: 1px solid #f0dcb4; color: #6d4600; }
   .muted { color: var(--muted); }
   code { background: #eef0f3; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
   details summary { cursor: pointer; font-weight: 600; }
+  details summary:hover { color: var(--accent); }
+  .logbar { display: flex; align-items: center; gap: 10px; margin: 12px 0 10px; }
+  .logbar .stamp { font-size: 12.5px; color: var(--muted); }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
   /* Dashboard */

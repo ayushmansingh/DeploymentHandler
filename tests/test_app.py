@@ -193,3 +193,80 @@ def test_running_apps_are_listed_before_broken_ones(client):
 def test_empty_dashboard_explains_what_to_do(client):
     page = client.get("/").text
     assert "No applications yet" in page
+
+
+def test_delete_removes_the_app_and_its_files(client, data_dir):
+    from launcher import appdata, config
+    upload(client, name="sales-dashboard")
+    row = db.get_app_by_name("sales-dashboard")
+    db.update_app(int(row["id"]), status="live", host_port=24817)
+
+    (config.SRC_DIR / "sales-dashboard").mkdir(parents=True, exist_ok=True)
+    (config.SRC_DIR / "sales-dashboard" / "main.py").write_text("x = 1")
+    (appdata.dir_for("sales-dashboard") / "report.csv").write_text("data\n")
+
+    response = client.post("/app/sales-dashboard/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert db.get_app_by_name("sales-dashboard") is None
+    assert not (config.SRC_DIR / "sales-dashboard").exists()
+    assert not (config.APPDATA_DIR / "sales-dashboard").exists()
+    assert not (config.UPLOAD_DIR / "sales-dashboard").exists()
+
+
+def test_delete_frees_the_port_for_reuse(client):
+    from launcher import ports
+    upload(client, name="sales-dashboard")
+    row = db.get_app_by_name("sales-dashboard")
+    port = ports.allocate(int(row["id"]))
+
+    client.post("/app/sales-dashboard/delete", follow_redirects=False)
+
+    assert port not in ports.in_use()
+
+
+def test_delete_reports_files_it_could_not_remove(client, monkeypatch):
+    """A locked file must not be hidden - the app is gone either way."""
+    from launcher import files
+    upload(client, name="sales-dashboard")
+    monkeypatch.setattr(files, "remove_tree", lambda path: False)
+
+    response = client.post("/app/sales-dashboard/delete", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "still on the server" in response.text
+    assert db.get_app_by_name("sales-dashboard") is None, "the app is still deleted"
+
+
+def test_status_partial_reports_whether_the_deploy_settled(client):
+    """The page polls on this marker, so it decides when polling stops."""
+    upload(client, name="sales-dashboard")
+    row = db.get_app_by_name("sales-dashboard")
+    deploy = db.list_deploys(int(row["id"]))[0]
+
+    html = client.get("/app/sales-dashboard/partial-status").text
+    assert 'data-deploy-status="queued"' in html
+
+    db.finish_deploy(int(deploy["id"]), "live")
+    db.update_app(int(row["id"]), status="live", host_port=24817)
+    html = client.get("/app/sales-dashboard/partial-status").text
+    assert 'data-deploy-status="live"' in html
+    assert "24817" in html
+
+
+def test_grid_declares_when_nothing_is_building(client):
+    """Drives the dashboard's back-off; wrong here means constant polling."""
+    upload(client, name="sales-dashboard")
+    assert 'data-busy="1"' in client.get("/partials/apps").text
+
+    row = db.get_app_by_name("sales-dashboard")
+    db.finish_deploy(int(db.list_deploys(int(row["id"]))[0]["id"]), "live")
+    db.update_app(int(row["id"]), status="live", host_port=24817)
+    assert 'data-busy="0"' in client.get("/partials/apps").text
+
+
+def test_app_page_does_not_reload_itself(client):
+    """A scheduled reload cancels form posts - it broke the delete button."""
+    upload(client, name="sales-dashboard")
+    page = client.get("/app/sales-dashboard").text
+    assert "location.reload" not in page

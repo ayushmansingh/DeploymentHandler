@@ -6,7 +6,6 @@ same npm problems it exists to absorb.
 """
 from __future__ import annotations
 
-import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +16,8 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appdata, config, db, deployer, errors, naming, native, ports, runtime
+from . import appdata, config, db, deployer, errors, files, naming, native, ports
+from . import runtime
 from . import supervisor
 
 BASE_DIR = Path(__file__).parent
@@ -129,29 +129,32 @@ def _all_summaries() -> list[dict]:
     return summaries
 
 
+def _grid_context() -> dict:
+    """Context for the app grid, including whether anything is still working."""
+    apps = _all_summaries()
+    return {
+        "apps": apps,
+        "live_count": sum(1 for a in apps if a["status"] == "live"),
+        "busy": any(
+            a["status"] in ("building", "new") or a["deploy_status"] in ("queued", "building")
+            for a in apps
+        ),
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    apps = _all_summaries()
     ready, problem = runtime_ready()
     return templates.TemplateResponse(
         request, "index.html",
-        {
-            "apps": apps,
-            "live_count": sum(1 for a in apps if a["status"] == "live"),
-            "runtime_ready": ready,
-            "runtime_problem": problem,
-        },
+        {**_grid_context(), "runtime_ready": ready, "runtime_problem": problem},
     )
 
 
 @app.get("/partials/apps", response_class=HTMLResponse)
 def partial_apps(request: Request):
     """The app grid on its own, for the dashboard's live refresh."""
-    apps = _all_summaries()
-    return templates.TemplateResponse(
-        request, "_apps.html",
-        {"apps": apps, "live_count": sum(1 for a in apps if a["status"] == "live")},
-    )
+    return templates.TemplateResponse(request, "_apps.html", _grid_context())
 
 
 @app.get("/api/apps")
@@ -294,6 +297,20 @@ def app_detail(request: Request, name: str, deploy: int | None = None):
     )
 
 
+@app.get("/app/{name}/partial-status", response_class=HTMLResponse)
+def partial_status(request: Request, name: str, deploy: int | None = None):
+    """Just the part of an app's page that changes while a deploy runs."""
+    row = _require_app(name)
+    current = db.get_deploy(deploy) if deploy else None
+    if current is None:
+        recent = db.list_deploys(int(row["id"]), limit=1)
+        current = recent[0] if recent else None
+    return templates.TemplateResponse(
+        request, "_appstatus.html",
+        {"app": row, "url": _app_url(row), "current": current},
+    )
+
+
 @app.get("/app/{name}/log", response_class=PlainTextResponse)
 def app_log(name: str, deploy: int | None = None):
     row = _require_app(name)
@@ -397,20 +414,40 @@ def rollback(name: str, deploy_id: int):
 @app.post("/app/{name}/delete")
 def delete_app(name: str):
     row = _require_app(name)
-    db.update_app(int(row["id"]), status="stopped")  # keep the supervisor off it
+
+    # Status first: the supervisor only tends apps marked live, so this stops
+    # it restarting the app between here and the processes actually dying.
+    db.update_app(int(row["id"]), status="stopped")
     if config.RUNTIME == "native":
         supervisor.stop(row)
     else:
         runtime.stop_container(row["container_id"] or "")
         if row["image_tag"]:
             runtime.remove_image(row["image_tag"])
+
     ports.release(int(row["id"]))
     db.delete_app(int(row["id"]))
-    appdata.detach(config.SRC_DIR / name)  # never delete data through the link
-    shutil.rmtree(config.SRC_DIR / name, ignore_errors=True)
+
+    # Unhook the data link before removing the source tree: on Windows,
+    # deleting a tree containing a junction can delete what it points at.
+    appdata.detach(config.SRC_DIR / name)
+
+    leftovers = [
+        directory / name
+        for directory in (config.SRC_DIR, config.UPLOAD_DIR, config.LOG_DIR)
+        if not files.remove_tree(directory / name)
+    ]
     appdata.remove(name)
-    shutil.rmtree(config.UPLOAD_DIR / name, ignore_errors=True)
-    shutil.rmtree(config.LOG_DIR / name, ignore_errors=True)
+
+    if leftovers:
+        # The app is gone from the dashboard either way; say what is still on
+        # disk rather than leaving it to be discovered later.
+        return _notice_page(
+            f"\"{name}\" was deleted, but some of its files are still on the "
+            "server because something was holding them open: "
+            + ", ".join(str(p) for p in leftovers)
+            + ". They can be removed by hand, and will not affect anything."
+        )
     return RedirectResponse("/", status_code=303)
 
 
@@ -429,6 +466,16 @@ def healthz():
     if problem:
         payload["problem"] = problem
     return payload
+
+
+def _notice_page(message: str) -> HTMLResponse:
+    """A completed action that has something worth saying about it."""
+    return HTMLResponse(
+        "<!doctype html><meta charset='utf-8'>"
+        "<title>App Launcher</title>"
+        "<body style=\"font:15px/1.6 system-ui;margin:40px;max-width:720px\">"
+        f"<p>{message}</p><p><a href='/'>Back to the dashboard</a></p>"
+    )
 
 
 def _error_page(request: Request, message: str) -> HTMLResponse:
