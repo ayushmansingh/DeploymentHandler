@@ -17,7 +17,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import appdata, archive, config, db, detect, errors, imagegen, native, ports
+from . import appdata, archive, config, db, detect, errors, files, imagegen, native
+from . import ports
 from . import runtime
 from . import supervisor
 
@@ -167,6 +168,7 @@ def run_deploy(deploy_id: int) -> None:
         #    link and take the app's data with it.
         src = config.SRC_DIR / name
         appdata.detach(src)
+        _clear_source_dir(app, src, log)
         result = archive.extract(Path(deploy["zip_path"]), src)
         if result.unwrapped_from:
             log.line(f"[launcher] Unwrapped folder '{result.unwrapped_from}' from the ZIP.")
@@ -298,6 +300,36 @@ def run_deploy(deploy_id: int) -> None:
             ),
         )
         _apply_failure_status(app, log, swapped)
+
+
+def _clear_source_dir(app_row, src: Path, log: _Log) -> None:
+    """Remove the previous version's files before unpacking the new ones.
+
+    The running version is deliberately left up while the new one builds, but
+    on Windows a file it still has open cannot be deleted - a SQLite database
+    the app opened inside its own folder is the usual case. Rather than fail
+    the deploy, stop the app to release the handles and try again. That costs
+    downtime only in the case that would otherwise have been an error.
+    """
+    if not src.exists() or files.remove_tree(src):
+        return
+
+    log.line(
+        "[launcher] The running version has files open, so it cannot be "
+        "replaced while it is up. Stopping it and continuing."
+    )
+    if config.RUNTIME == "native":
+        supervisor.stop(app_row)
+    else:
+        runtime.stop_container(app_row["container_id"] or "")
+
+    if not files.remove_tree(src):
+        raise archive.ArchiveError(
+            "The previous version's files could not be removed from the "
+            "server, so the new version cannot be installed. Something else "
+            "is holding them open. Ask the server administrator to check "
+            f"{src}."
+        )
 
 
 def _runtime_logs(name: str, app_row) -> str:

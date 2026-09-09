@@ -70,3 +70,64 @@ def test_first_ever_deploy_failing_leaves_the_app_failed(data_dir, log, serving)
     deployer._apply_failure_status(db.get_app(app_id), log, swapped=False)
 
     assert db.get_app(app_id)["status"] == "failed"
+
+
+def test_locked_source_files_stop_the_app_rather_than_failing(data_dir, log, monkeypatch):
+    """Windows will not delete a file the running app still has open.
+
+    A SQLite database opened inside the app's own folder is the usual case,
+    and it must not turn a replace into a failed deploy.
+    """
+    from launcher import archive, deployer, files, supervisor
+
+    db.init()
+    app_id = db.create_app("alpha")
+    db.update_app(app_id, status="live", front_pid=1002)
+    row = db.get_app(app_id)
+
+    src = config.SRC_DIR / "alpha"
+    src.mkdir(parents=True)
+    (src / "app.db").write_text("locked")
+
+    monkeypatch.setattr(config, "RUNTIME", "native")
+    stopped: list = []
+    monkeypatch.setattr(supervisor, "stop", stopped.append)
+    # Removal fails while the app runs, and succeeds once it has been stopped.
+    monkeypatch.setattr(files, "remove_tree", lambda path: bool(stopped))
+
+    deployer._clear_source_dir(row, src, log)
+
+    assert stopped, "the app must be stopped to release the file handles"
+    assert "cannot be replaced while it is up" in log.read()
+
+
+def test_source_that_cannot_be_cleared_at_all_is_reported(data_dir, log, monkeypatch):
+    from launcher import archive, deployer, files, supervisor
+
+    db.init()
+    app_id = db.create_app("alpha")
+    row = db.get_app(app_id)
+    src = config.SRC_DIR / "alpha"
+    src.mkdir(parents=True)
+
+    monkeypatch.setattr(config, "RUNTIME", "native")
+    monkeypatch.setattr(supervisor, "stop", lambda r: None)
+    monkeypatch.setattr(files, "remove_tree", lambda path: False)
+
+    with pytest.raises(archive.ArchiveError, match="could not be removed"):
+        deployer._clear_source_dir(row, src, log)
+
+
+def test_nothing_happens_when_there_is_no_previous_version(data_dir, log, monkeypatch):
+    from launcher import deployer, supervisor
+
+    db.init()
+    row = db.get_app(db.create_app("alpha"))
+    monkeypatch.setattr(config, "RUNTIME", "native")
+    monkeypatch.setattr(
+        supervisor, "stop",
+        lambda r: pytest.fail("must not stop anything on a first deploy"),
+    )
+
+    deployer._clear_source_dir(row, config.SRC_DIR / "alpha", log)
+    assert log.read() == ""

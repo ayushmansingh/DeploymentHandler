@@ -237,6 +237,11 @@ which makes the output conform on the first try.
 The block lives in [PROMPT.md](PROMPT.md), which is the canonical copy — the
 dashboard renders the same text, and a test fails if the two drift apart.
 
+When an upload fails and the plain-English message is not enough,
+[PIPELINE.md](PIPELINE.md) describes exactly what the server does to a ZIP —
+every check, every rewrite, every path. It is written to be pasted into an AI
+assistant alongside the error.
+
 Auto-detection handles the common layouts. For anything unusual, a
 `launcher.yaml` at the root wins:
 
