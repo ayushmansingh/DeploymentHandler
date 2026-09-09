@@ -67,15 +67,22 @@ def build_image(context: Path, tag: str, sink: LogSink) -> int:
     )
 
 
-def run_container(tag: str, name: str, host_port: int) -> str:
+def run_container(tag: str, name: str, host_port: int,
+                  data_dir: Path | None = None) -> str:
     """Start the app, published on `host_port`, and return the container id.
 
     The container-internal port is always 80 (nginx); it can be the same for
     every app because each container has its own network namespace.
     """
+    storage: list[str] = []
+    if data_dir is not None:
+        # Bind-mounted so the app's saved files outlive the image.
+        storage = ["--volume", f"{data_dir}:/data", "--env", "APP_DATA_DIR=/data"]
+
     container_id = _run([
         "docker", "run", "--detach",
         "--name", name,
+        *storage,
         "--restart", "unless-stopped",
         "--publish", f"{host_port}:{config.INTERNAL_HTTP_PORT}",
         "--memory", config.APP_MEMORY_LIMIT,

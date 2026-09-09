@@ -19,6 +19,7 @@ def data_dir(monkeypatch):
         monkeypatch.setattr(config, "UPLOAD_DIR", root / "uploads")
         monkeypatch.setattr(config, "SRC_DIR", root / "src")
         monkeypatch.setattr(config, "LOG_DIR", root / "logs")
+        monkeypatch.setattr(config, "APPDATA_DIR", root / "appdata")
         monkeypatch.setattr(config, "DB_PATH", root / "launcher.db")
         config.ensure_dirs()
         yield root

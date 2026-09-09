@@ -52,6 +52,17 @@ BACKEND (Python)
 - The server starts the app for you. A `if __name__ == "__main__"` block is
   harmless but is not used, and the port is chosen by the server
 
+SAVING FILES
+- To save anything - a CSV pulled from Redash, a SQLite database, a cache -
+  write it inside the folder given by the APP_DATA_DIR environment variable:
+      DATA = Path(os.environ.get("APP_DATA_DIR", "data"))
+      DATA.mkdir(parents=True, exist_ok=True)
+      df.to_csv(DATA / "redash_export.csv", index=False)
+- Files there survive when the app is replaced with a newer ZIP
+- The folder `data/` next to main.py points at the same place, so a plain
+  "data/report.csv" also works
+- Anything written anywhere ELSE is erased on the next upload
+
 FRONTEND (React + Vite)
 - frontend/package.json must have a "build" script
 - The build must output to frontend/dist
@@ -59,9 +70,7 @@ FRONTEND (React + Vite)
   e.g. fetch("/api/items")  -  NEVER http://localhost:8000 or any absolute URL
 
 NOT SUPPORTED - do not use these
-- WebSockets
-- Writing to disk. Files the app saves are erased when it is replaced with a
-  newer ZIP. Keep data in memory, or read it from an existing database or API.</pre>
+- WebSockets</pre>
   <button onclick="navigator.clipboard.writeText(document.getElementById('prompt-block').innerText)">
     Copy prompt</button>
 </details>

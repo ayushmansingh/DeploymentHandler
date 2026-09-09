@@ -17,7 +17,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import archive, config, db, detect, errors, imagegen, native, ports, runtime
+from . import appdata, archive, config, db, detect, errors, imagegen, native, ports
+from . import runtime
 from . import supervisor
 
 _executor: ThreadPoolExecutor | None = None
@@ -161,8 +162,11 @@ def run_deploy(deploy_id: int) -> None:
     try:
         log.line(f"[launcher] Deploying {name}...")
 
-        # 1. Extract and normalise.
+        # 1. Extract and normalise. Unhook saved data first: the extract wipes
+        #    the source tree, and on Windows that could otherwise follow the
+        #    link and take the app's data with it.
         src = config.SRC_DIR / name
+        appdata.detach(src)
         result = archive.extract(Path(deploy["zip_path"]), src)
         if result.unwrapped_from:
             log.line(f"[launcher] Unwrapped folder '{result.unwrapped_from}' from the ZIP.")
@@ -174,6 +178,9 @@ def run_deploy(deploy_id: int) -> None:
         for note in spec.notes:
             log.line(f"[launcher] {note}")
         db.update_app(app["id"], kind=spec.kind)
+
+        # Saved files live outside the source tree, so they outlive this deploy.
+        data_dir = appdata.attach(name, src, spec, log.write)
 
         # 3. Preflight the mistake that costs the most time to discover late.
         if spec.frontend:
@@ -202,7 +209,8 @@ def run_deploy(deploy_id: int) -> None:
             supervisor.stop(app)
 
             processes = native.start(
-                name, src, spec, host_port, backend_port, config.LOG_DIR / name
+                name, src, spec, host_port, backend_port,
+                config.LOG_DIR / name, data_dir,
             )
             swapped = True
             log.line(f"[launcher] Started the app (process {processes.front_pid}).")
@@ -228,7 +236,7 @@ def run_deploy(deploy_id: int) -> None:
                 runtime.stop_container(app["container_id"])
             runtime.remove_container_by_name(name)
 
-            container_id = runtime.run_container(tag, name, host_port)
+            container_id = runtime.run_container(tag, name, host_port, data_dir)
             swapped = True
             log.line(f"[launcher] Started container {container_id[:12]}.")
             db.update_app(

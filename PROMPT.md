@@ -24,6 +24,17 @@ BACKEND (Python)
 - The server starts the app for you. A `if __name__ == "__main__"` block is
   harmless but is not used, and the port is chosen by the server
 
+SAVING FILES
+- To save anything - a CSV pulled from Redash, a SQLite database, a cache -
+  write it inside the folder given by the APP_DATA_DIR environment variable:
+      DATA = Path(os.environ.get("APP_DATA_DIR", "data"))
+      DATA.mkdir(parents=True, exist_ok=True)
+      df.to_csv(DATA / "redash_export.csv", index=False)
+- Files there survive when the app is replaced with a newer ZIP
+- The folder `data/` next to main.py points at the same place, so a plain
+  "data/report.csv" also works
+- Anything written anywhere ELSE is erased on the next upload
+
 FRONTEND (React + Vite)
 - frontend/package.json must have a "build" script
 - The build must output to frontend/dist
@@ -32,8 +43,6 @@ FRONTEND (React + Vite)
 
 NOT SUPPORTED - do not use these
 - WebSockets
-- Writing to disk. Files the app saves are erased when it is replaced with a
-  newer ZIP. Keep data in memory, or read it from an existing database or API.
 ```
 
 ## Why each rule is there
@@ -52,6 +61,8 @@ that exits on a missing key looks identical to a crash.
 **Module-level `app`.** That is what the launcher looks for to work out how to
 start the backend.
 
-**Nothing written to disk.** Each deploy replaces the app's folder, so a
-SQLite file next to the code is lost on the next upload. Worth knowing before
-someone builds a week of data collection on top of it.
+**`APP_DATA_DIR` for anything worth keeping.** Each deploy replaces the app's
+source folder, so a file written beside the code would be lost on the next
+upload. `APP_DATA_DIR` points outside that folder and is never touched by a
+deploy, so a CSV pulled from Redash, a SQLite database or a cache all survive
+being replaced. Deleting the app deletes its data; nothing else does.

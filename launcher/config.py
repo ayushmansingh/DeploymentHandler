@@ -36,6 +36,8 @@ DATA_DIR = _env_path("LAUNCHER_DATA_DIR", _default_data_dir())
 UPLOAD_DIR = DATA_DIR / "uploads"    # every ZIP ever uploaded, for rollback
 SRC_DIR = DATA_DIR / "src"           # extracted source of the live version
 LOG_DIR = DATA_DIR / "logs"          # build + runtime logs per deploy
+# Files apps write. Deliberately outside SRC_DIR, which every deploy wipes.
+APPDATA_DIR = DATA_DIR / "appdata"
 DB_PATH = DATA_DIR / "launcher.db"
 
 # Host ports handed out to apps. These are the ones people put in a browser.
@@ -96,5 +98,5 @@ INTERNAL_HTTP_PORT = 80        # nginx: serves the frontend, proxies /api
 
 
 def ensure_dirs() -> None:
-    for d in (DATA_DIR, UPLOAD_DIR, SRC_DIR, LOG_DIR):
+    for d in (DATA_DIR, UPLOAD_DIR, SRC_DIR, LOG_DIR, APPDATA_DIR):
         d.mkdir(parents=True, exist_ok=True)

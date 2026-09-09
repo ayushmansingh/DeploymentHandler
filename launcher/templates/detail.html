@@ -62,6 +62,15 @@
 </div>
 
 <div class="card">
+  <strong>Saved files</strong>
+  <p class="muted" style="font-size:13px;margin:4px 0 0">
+    {{ data_size }} in <code>{{ data_dir }}</code>. Anything the app writes here
+    survives being replaced with a newer ZIP; the app reaches it through the
+    <code>APP_DATA_DIR</code> environment variable or its own <code>data/</code>
+    folder. Deleting the app deletes this too.</p>
+</div>
+
+<div class="card">
   <div class="row">
     <form method="post" action="/app/{{ app['name'] }}/stop"><button>Stop</button></form>
     <form method="post" action="/app/{{ app['name'] }}/start"><button>Start</button></form>

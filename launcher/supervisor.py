@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import config, db, detect, native, ports
+from . import appdata, config, db, detect, native, ports
 
 _thread: threading.Thread | None = None
 _stop = threading.Event()
@@ -67,7 +67,8 @@ def launch(app_row, reason: str = "") -> bool:
         _log(name, reason)
 
     processes = native.start(
-        name, src, spec, public_port, backend_port, config.LOG_DIR / name
+        name, src, spec, public_port, backend_port, config.LOG_DIR / name,
+        appdata.dir_for(name),
     )
     db.update_app(
         int(app_row["id"]),

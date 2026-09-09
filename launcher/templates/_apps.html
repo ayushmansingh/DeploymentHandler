@@ -42,6 +42,7 @@
         {% if app.owner %}{{ app.owner }}{% else %}unknown{% endif %}
         {% if app.deployed_at %} · {{ app.deployed_at | datetime }}{% endif %}
         {% if app.memory_mb %} · {{ app.memory_mb }} MB{% endif %}
+        {% if app.data_size != 'empty' %} · {{ app.data_size }} saved{% endif %}
       </div>
 
       <div class="app-actions">

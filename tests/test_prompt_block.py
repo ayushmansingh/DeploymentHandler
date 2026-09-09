@@ -40,4 +40,5 @@ def test_prompt_states_the_rules_the_launcher_actually_enforces():
 def test_prompt_warns_about_the_limits_of_native_mode():
     block = canonical_block()
     assert "WebSockets" in block
-    assert "erased when it is replaced" in block
+    assert "APP_DATA_DIR" in block
+    assert "erased on the next upload" in block

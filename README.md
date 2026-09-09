@@ -175,6 +175,33 @@ Worth knowing, because these are real:
   venv; npm is not.
 - **WebSockets are not proxied.** Ordinary HTTP and streaming responses work.
 
+## Saved files
+
+Every deploy replaces an app's source folder, so anything written beside the
+code would be lost on the next upload. Each app therefore gets a directory
+that no deploy touches:
+
+```
+<LAUNCHER_DATA_DIR>/appdata/<app-name>/
+```
+
+An app reaches it two ways. `APP_DATA_DIR` is set in its environment and is
+the reliable route. As a convenience the same directory is linked in at
+`data/` next to `main.py`, so ordinary code like `pd.read_csv("data/export.csv")`
+works too — which matters, because that is what an AI assistant tends to write.
+
+This is what makes the common shape of work possible: pull a query result out
+of Redash into a CSV, build a dashboard on it, then keep updating the
+dashboard without losing the data.
+
+A `data/` folder shipped inside the ZIP is treated as seed data — copied in on
+the first deploy, and never allowed to overwrite what the running app has
+since collected. Deleting an app deletes its data; nothing else does.
+
+On Windows the link is a directory junction, which needs no administrator
+rights. If it cannot be created the deploy still succeeds and `APP_DATA_DIR`
+still works — only the `data/` shorthand is unavailable, and the log says so.
+
 ## Configuration
 
 All settings are environment variables (see `launcher/config.py`):

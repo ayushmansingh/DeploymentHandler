@@ -17,7 +17,8 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import config, db, deployer, errors, naming, native, ports, runtime, supervisor
+from . import appdata, config, db, deployer, errors, naming, native, ports, runtime
+from . import supervisor
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -113,6 +114,7 @@ def _app_summary(row) -> dict:
         "port": row["host_port"],
         "memory_mb": _memory_mb(row),
         "deployed_at": deploy["created_at"] if deploy else None,
+        "data_size": appdata.human_size(appdata.size_bytes(row["name"])),
         "deploy_status": deploy["status"] if deploy else None,
         "error": deploy["error_summary"] if deploy else None,
     }
@@ -283,6 +285,8 @@ def app_detail(request: Request, name: str, deploy: int | None = None):
             "deploys": deploys,
             "current": current,
             "container_state": state,
+            "data_size": appdata.human_size(appdata.size_bytes(name)),
+            "data_dir": appdata.dir_for(name),
         },
     )
 
@@ -399,7 +403,9 @@ def delete_app(name: str):
             runtime.remove_image(row["image_tag"])
     ports.release(int(row["id"]))
     db.delete_app(int(row["id"]))
+    appdata.detach(config.SRC_DIR / name)  # never delete data through the link
     shutil.rmtree(config.SRC_DIR / name, ignore_errors=True)
+    appdata.remove(name)
     shutil.rmtree(config.UPLOAD_DIR / name, ignore_errors=True)
     shutil.rmtree(config.LOG_DIR / name, ignore_errors=True)
     return RedirectResponse("/", status_code=303)

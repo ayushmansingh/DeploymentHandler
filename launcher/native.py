@@ -241,13 +241,17 @@ def _spawn(cmd: list[str], cwd: Path, log_path: Path,
 
 
 def start(app_name: str, src: Path, spec: Spec, public_port: int,
-          backend_port: int | None, log_dir: Path) -> Processes:
+          backend_port: int | None, log_dir: Path,
+          data_dir: Path | None = None) -> Processes:
     """Launch the app's processes and return their pids."""
     processes = Processes()
     runtime_log = log_dir / "runtime.log"
 
     if spec.backend and backend_port:
         env = {**os.environ, "PORT": str(backend_port), "PYTHONUNBUFFERED": "1"}
+        if data_dir is not None:
+            # Where the app should write anything it wants to keep.
+            env["APP_DATA_DIR"] = str(data_dir)
         processes.backend_pid = _spawn(
             backend_command(spec, src, backend_port),
             cwd=src / spec.backend.path,
