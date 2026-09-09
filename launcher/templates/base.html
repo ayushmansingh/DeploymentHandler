@@ -47,6 +47,43 @@
   code { background: #eef0f3; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
   details summary { cursor: pointer; font-weight: 600; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  /* Dashboard */
+  .page-head { display: flex; align-items: center; justify-content: space-between;
+          gap: 16px; margin-bottom: 2px; }
+  .page-head h1 { margin: 0; }
+  .grid { display: grid; gap: 14px; margin-bottom: 26px;
+          grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+
+  /* The whole card is the click target for opening the app; the Manage link
+     sits above it so it stays separately clickable. */
+  /* Flex column so the action row sits at the bottom of every card, however
+     much text the card above it holds. */
+  .app-card { position: relative; display: flex; flex-direction: column;
+          background: var(--card); border: 1px solid var(--line);
+          border-left: 3px solid var(--line); border-radius: 10px; padding: 15px 16px;
+          transition: box-shadow .12s ease, transform .12s ease; }
+  .app-card.live { border-left-color: var(--ok); }
+  .app-card.failed { border-left-color: var(--bad); }
+  .app-card.building { border-left-color: var(--warn); }
+  .app-card.live:hover { box-shadow: 0 3px 12px rgba(20,25,35,.10); transform: translateY(-1px); }
+  .app-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .app-name { font-weight: 650; font-size: 16px; color: var(--ink); text-decoration: none;
+          word-break: break-word; }
+  .stretch::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
+  .app-url { font-size: 12.5px; color: var(--accent); margin-top: 5px; word-break: break-all; }
+  .app-url.muted { color: var(--muted); }
+  .app-error { font-size: 12.5px; color: var(--bad); margin-top: 8px;
+          display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+          overflow: hidden; }
+  .app-meta { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .app-actions { display: flex; align-items: center; justify-content: space-between;
+          gap: 10px; margin-top: auto; padding-top: 14px; }
+  .app-actions .hint { font-size: 12px; color: var(--muted); }
+  .app-actions .manage { position: relative; z-index: 1; font-size: 13px;
+          color: var(--muted); text-decoration: none; border: 1px solid var(--line);
+          padding: 4px 10px; border-radius: 6px; background: #fff; margin-left: auto; }
+  .app-actions .manage:hover { color: var(--ink); border-color: var(--muted); }
 </style>
 </head>
 <body>

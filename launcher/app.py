@@ -87,24 +87,76 @@ def _require_app(name: str):
     return row
 
 
+# Order the dashboard puts apps in: what is running first, what needs
+# attention last, so the useful links are always at the top of the page.
+_STATUS_ORDER = {"live": 0, "building": 1, "stopped": 2, "new": 3, "failed": 4}
+
+
+def _memory_mb(row) -> float | None:
+    """Resident memory for an app, when the runtime can tell us cheaply."""
+    if config.RUNTIME != "native" or row["status"] != "live":
+        return None
+    used = native.memory_mb(row["front_pid"]) + native.memory_mb(row["pid"])
+    return round(used) if used else None
+
+
+def _app_summary(row) -> dict:
+    """Everything the dashboard shows about one app."""
+    latest = db.list_deploys(int(row["id"]), limit=1)
+    deploy = latest[0] if latest else None
+    return {
+        "name": row["name"],
+        "status": row["status"],
+        "kind": row["kind"],
+        "owner": row["owner"] or "",
+        "url": _app_url(row),
+        "port": row["host_port"],
+        "memory_mb": _memory_mb(row),
+        "deployed_at": deploy["created_at"] if deploy else None,
+        "deploy_status": deploy["status"] if deploy else None,
+        "error": deploy["error_summary"] if deploy else None,
+    }
+
+
+def _all_summaries() -> list[dict]:
+    summaries = [_app_summary(row) for row in db.list_apps()]
+    summaries.sort(key=lambda a: (_STATUS_ORDER.get(a["status"], 9), a["name"]))
+    return summaries
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    rows = db.list_apps()
-    apps = []
-    for row in rows:
-        latest = db.list_deploys(int(row["id"]), limit=1)
-        apps.append(
-            {
-                "row": row,
-                "url": _app_url(row),
-                "latest": latest[0] if latest else None,
-            }
-        )
+    apps = _all_summaries()
     ready, problem = runtime_ready()
     return templates.TemplateResponse(
         request, "index.html",
-        {"apps": apps, "runtime_ready": ready, "runtime_problem": problem},
+        {
+            "apps": apps,
+            "live_count": sum(1 for a in apps if a["status"] == "live"),
+            "runtime_ready": ready,
+            "runtime_problem": problem,
+        },
     )
+
+
+@app.get("/partials/apps", response_class=HTMLResponse)
+def partial_apps(request: Request):
+    """The app grid on its own, for the dashboard's live refresh."""
+    apps = _all_summaries()
+    return templates.TemplateResponse(
+        request, "_apps.html",
+        {"apps": apps, "live_count": sum(1 for a in apps if a["status"] == "live")},
+    )
+
+
+@app.get("/api/apps")
+def api_apps():
+    """Backs the dashboard's live refresh, so a building app updates in place."""
+    apps = _all_summaries()
+    return {
+        "apps": apps,
+        "live_count": sum(1 for a in apps if a["status"] == "live"),
+    }
 
 
 class UploadTooLarge(Exception):

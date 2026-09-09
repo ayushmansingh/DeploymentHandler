@@ -1,0 +1,56 @@
+{# The app grid. Rendered into the page on load, and re-fetched by the
+   dashboard's poll so a building app updates in place. Kept in one file so
+   the two paths cannot drift apart. #}
+<p class="sub" id="app-count">
+  {% if apps %}
+    {{ live_count }} of {{ apps | length }} running
+  {% else %}
+    Nothing deployed yet
+  {% endif %}
+</p>
+
+{% if not apps %}
+  <div class="card muted">
+    No applications yet. Upload a ZIP below to deploy the first one.
+  </div>
+{% else %}
+  <div class="grid">
+  {% for app in apps %}
+    {% set clickable = app.status == 'live' and app.url %}
+    <div class="app-card {{ app.status }}">
+      <div class="app-head">
+        {% if clickable %}
+          <a class="app-name stretch" href="{{ app.url }}" target="_blank"
+             rel="noopener">{{ app.name }}</a>
+        {% else %}
+          <a class="app-name stretch" href="/app/{{ app.name }}">{{ app.name }}</a>
+        {% endif %}
+        <span class="pill {{ app.status }}">{{ app.status }}</span>
+      </div>
+
+      {% if app.url %}
+        <div class="app-url">{{ app.url }}</div>
+      {% else %}
+        <div class="app-url muted">no address yet</div>
+      {% endif %}
+
+      {% if app.status == 'failed' and app.error %}
+        <div class="app-error">{{ app.error }}</div>
+      {% endif %}
+
+      <div class="app-meta">
+        {% if app.owner %}{{ app.owner }}{% else %}unknown{% endif %}
+        {% if app.deployed_at %} · {{ app.deployed_at | datetime }}{% endif %}
+        {% if app.memory_mb %} · {{ app.memory_mb }} MB{% endif %}
+      </div>
+
+      <div class="app-actions">
+        {% if clickable %}
+          <span class="hint">Click to open</span>
+        {% endif %}
+        <a class="manage" href="/app/{{ app.name }}">Manage</a>
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+{% endif %}

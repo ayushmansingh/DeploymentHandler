@@ -1,13 +1,21 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Deploy a dashboard</h1>
-<p class="sub">Upload the ZIP your AI assistant gave you. We'll build it and give you a link.</p>
+
+<div class="page-head">
+  <h1>Applications</h1>
+  <a class="btn primary" href="#deploy">Deploy an app</a>
+</div>
 
 {% if not runtime_ready %}
 <div class="banner bad"><strong>This server is not ready to build apps.</strong>
 {{ runtime_problem }} Contact the server administrator.</div>
 {% endif %}
 
+<div id="apps">
+  {% include "_apps.html" %}
+</div>
+
+<h2 id="deploy">Deploy an app</h2>
 <div class="card">
   <form method="post" action="/upload" enctype="multipart/form-data">
     <label for="name">App name</label>
@@ -41,24 +49,19 @@
     Copy prompt</button>
 </details>
 
-<h2>Apps on this server</h2>
-{% if not apps %}
-<div class="card muted">Nothing deployed yet. Upload a ZIP above to get started.</div>
-{% else %}
-<div class="card" style="padding:6px 14px">
-<table>
-  <tr><th>App</th><th>Status</th><th>Link</th><th>Owner</th><th>Last deploy</th></tr>
-  {% for item in apps %}
-  <tr>
-    <td><a href="/app/{{ item.row['name'] }}">{{ item.row['name'] }}</a></td>
-    <td><span class="pill {{ item.row['status'] }}">{{ item.row['status'] }}</span></td>
-    <td>{% if item.url %}<a href="{{ item.url }}" target="_blank">{{ item.url }}</a>
-        {% else %}<span class="muted">-</span>{% endif %}</td>
-    <td class="muted">{{ item.row['owner'] or '-' }}</td>
-    <td class="muted">{{ item.latest['created_at'] | datetime if item.latest else '-' }}</td>
-  </tr>
-  {% endfor %}
-</table>
-</div>
-{% endif %}
+<script>
+// Refresh the grid in place so a deploy in progress turns into a working link
+// without anyone reaching for F5. Paused while the tab is in the background.
+const appsEl = document.getElementById("apps");
+
+async function refreshApps() {
+  if (!document.hidden) {
+    try {
+      appsEl.innerHTML = await fetch("/partials/apps").then(r => r.text());
+    } catch (err) { /* transient; try again on the next tick */ }
+  }
+  setTimeout(refreshApps, 5000);
+}
+setTimeout(refreshApps, 5000);
+</script>
 {% endblock %}

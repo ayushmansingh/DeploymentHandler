@@ -140,3 +140,56 @@ def test_oversized_upload_is_rejected_with_a_plain_message(client, monkeypatch):
     )
     assert response.status_code == 400
     assert "node_modules" in response.text
+
+
+def test_dashboard_lists_apps_with_their_links(client):
+    upload(client, name="sales-dashboard")
+    row = db.get_app_by_name("sales-dashboard")
+    db.update_app(int(row["id"]), status="live", host_port=24817)
+
+    page = client.get("/").text
+    assert "sales-dashboard" in page
+    assert "24817" in page
+
+
+def test_live_app_card_links_to_the_app_itself(client):
+    """Clicking an app on the dashboard must open the app, not its settings."""
+    upload(client, name="sales-dashboard")
+    row = db.get_app_by_name("sales-dashboard")
+    db.update_app(int(row["id"]), status="live", host_port=24817)
+
+    payload = client.get("/api/apps").json()
+    card = payload["apps"][0]
+    assert card["url"].endswith(":24817")
+    assert payload["live_count"] == 1
+
+    html = client.get("/partials/apps").text
+    assert 'href="http://' in html and "24817" in html
+    assert 'href="/app/sales-dashboard"' in html, "Manage link should still be there"
+
+
+def test_app_that_is_not_running_links_to_its_page_instead(client):
+    upload(client, name="broken-report")
+    row = db.get_app_by_name("broken-report")
+    db.update_app(int(row["id"]), status="failed")
+
+    html = client.get("/partials/apps").text
+    assert 'href="/app/broken-report"' in html
+    assert "no address yet" in html
+    assert client.get("/api/apps").json()["live_count"] == 0
+
+
+def test_running_apps_are_listed_before_broken_ones(client):
+    upload(client, name="zzz-working")
+    upload(client, name="aaa-broken")
+    db.update_app(int(db.get_app_by_name("zzz-working")["id"]),
+                  status="live", host_port=24817)
+    db.update_app(int(db.get_app_by_name("aaa-broken")["id"]), status="failed")
+
+    names = [a["name"] for a in client.get("/api/apps").json()["apps"]]
+    assert names == ["zzz-working", "aaa-broken"]
+
+
+def test_empty_dashboard_explains_what_to_do(client):
+    page = client.get("/").text
+    assert "No applications yet" in page
