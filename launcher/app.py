@@ -62,6 +62,9 @@ def runtime_state(row) -> str:
 
 def runtime_ready() -> tuple[bool, str]:
     """Whether this server can currently build and run apps at all."""
+    blocking = [p for p in config.environment_problems() if "every deploy fails" in p]
+    if blocking:
+        return False, blocking[0]
     if config.RUNTIME == "native":
         tools = native.toolchain_report()
         if not tools["npm"]:

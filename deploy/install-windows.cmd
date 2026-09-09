@@ -2,7 +2,9 @@
 REM One-time setup on the Windows server. No administrator rights needed.
 REM Double-click this file, or run it from a command prompt.
 
+call "%~dp0settings.cmd"
 cd /d "%~dp0.."
+
 echo.
 echo === Creating the Python environment ===
 python -m venv .venv
@@ -28,7 +30,14 @@ if errorlevel 1 (
 echo.
 echo === Checking this machine can build and run apps ===
 .venv\Scripts\python.exe scripts\selftest.py
+if errorlevel 1 (
+  echo.
+  echo The self-test failed. Fix what it reported above, then run this again.
+  pause
+  exit /b 1
+)
+
 echo.
-echo If the self-test passed, edit deploy\start-launcher.cmd with your settings
-echo and run it.
+echo Setup complete. Edit deploy\settings.cmd with your settings, then run
+echo deploy\start-launcher.cmd
 pause

@@ -75,7 +75,16 @@ several checks running, and brings apps back after the launcher restarts.
 
 Python 3.10 or newer, with the `venv` module. If `python --version` works in
 PowerShell you already have it. Otherwise install from python.org **for this
-user only** (uncheck "Install for all users"), or from the Microsoft Store.
+user only** (uncheck "Install for all users") — no administrator rights
+needed.
+
+**Prefer python.org over the Microsoft Store build.** Store Python is a
+packaged app: Windows silently redirects its writes under `%LOCALAPPDATA%`
+into a private per-package folder, so a virtual environment created there
+ends up somewhere other than where it is looked for, and every deploy fails
+with `failed to locate pyvenv.cfg`. Store Python does work as long as
+`LAUNCHER_DATA_DIR` is outside `%LOCALAPPDATA%` — which is the default — and
+the self-test refuses to run if that combination is wrong.
 
 ### 2. Node.js — the portable ZIP, not the installer
 
@@ -102,10 +111,12 @@ Python environment, installs dependencies, and runs the self-test.
 
 ### 4. Configure and start
 
-Edit `deploy\start-launcher.cmd` and set `LAUNCHER_PUBLIC_HOST` to the
-server's own LAN address — find it with `ipconfig`. Left as an address the
-rest of the network cannot reach, every link handed to your team will be
-broken.
+Edit `deploy\settings.cmd` and set `LAUNCHER_PUBLIC_HOST` to the server's
+own LAN address — find it with `ipconfig`. Left as an address the rest of the
+network cannot reach, every link handed to your team will be broken.
+
+Both scripts read that one file, so the self-test always checks the same
+configuration the launcher actually runs with.
 
 Give the machine a **static IP or a DHCP reservation** before anyone
 bookmarks anything; if the address moves, every saved link breaks at once.
@@ -208,7 +219,7 @@ All settings are environment variables (see `launcher/config.py`):
 | Variable | Default | Notes |
 |---|---|---|
 | `LAUNCHER_PUBLIC_HOST` | `localhost` | **Set this.** Appears in every link handed out |
-| `LAUNCHER_DATA_DIR` | `%LOCALAPPDATA%\AppLauncher` | ZIPs, sources, logs, database |
+| `LAUNCHER_DATA_DIR` | `%USERPROFILE%\AppLauncherData` | ZIPs, sources, logs, saved app data. **Never put this under `%LOCALAPPDATA%`** |
 | `LAUNCHER_RUNTIME` | `native` | `native` or `docker` |
 | `LAUNCHER_NPM` | auto-detected | Full path to `npm.cmd` if it is not on PATH |
 | `LAUNCHER_PORT_START` / `_END` | `20000` / `29999` | Public ports for apps |

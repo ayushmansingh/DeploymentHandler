@@ -38,11 +38,14 @@ def dir_for(app_name: str) -> Path:
     return path
 
 
-def _make_link(link: Path, target: Path) -> bool:
+def _make_link(link: Path, target: Path) -> tuple[bool, str]:
     """Point `link` at `target`, without needing administrator rights.
 
     Windows reserves directory symlinks for administrators (or Developer
     Mode), but directory junctions are unprivileged, so use those there.
+
+    Returns (succeeded, reason) - the reason matters, because a silent
+    "could not link" tells whoever is setting this up nothing about why.
     """
     try:
         if config.IS_WINDOWS:
@@ -50,11 +53,13 @@ def _make_link(link: Path, target: Path) -> bool:
                 ["cmd", "/c", "mklink", "/J", str(link), str(target)],
                 capture_output=True, text=True, timeout=30,
             )
-            return result.returncode == 0
+            if result.returncode == 0:
+                return True, ""
+            return False, (result.stderr or result.stdout).strip()
         os.symlink(target, link, target_is_directory=True)
-        return True
-    except (OSError, subprocess.SubprocessError):
-        return False
+        return True, ""
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
 
 
 def attach(app_name: str, src: Path, spec: Spec, log: LogSink) -> Path:
@@ -84,12 +89,15 @@ def attach(app_name: str, src: Path, spec: Spec, log: LogSink) -> Path:
     elif link.is_symlink() or link.exists():
         link.unlink(missing_ok=True)
 
-    if not _make_link(link, store):
+    linked, reason = _make_link(link, store)
+    if not linked:
         # Not fatal: APP_DATA_DIR still works, so an app that reads the
         # environment variable keeps its data either way.
         log(
-            "[launcher] Note: could not link data/ into the app folder. Use the "
-            "APP_DATA_DIR environment variable to save files.\n"
+            "[launcher] Note: could not link data/ into the app folder"
+            + (f" ({reason})" if reason else "")
+            + ". Apps should use the APP_DATA_DIR environment variable to save "
+            "files.\n"
         )
     return store
 

@@ -145,6 +145,14 @@ def check_prerequisites() -> bool:
     from launcher import config
 
     note(f"Runtime: {config.RUNTIME}")
+    for problem in config.environment_problems():
+        # A redirected data directory makes every deploy fail with an
+        # unreadable error, so say so here rather than after a failed build.
+        if "every deploy fails" in problem:
+            bad("Python and data directory combination will not work", problem)
+            healthy = False
+        else:
+            note(problem)
     if config.RUNTIME == "native":
         healthy = _check_native() and healthy
     else:

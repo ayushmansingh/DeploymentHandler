@@ -227,7 +227,7 @@ def detect(root: Path) -> Spec:
 
     notes = []
     if backend:
-        notes.append(f"Python backend in {backend.path}/ — starting with: {backend.start}")
+        notes.append(f"Python backend in {backend.path}/ - starting with: {backend.start}")
     if frontend:
-        notes.append(f"Frontend in {frontend.path}/ — building to {frontend.output}/")
+        notes.append(f"Frontend in {frontend.path}/ - building to {frontend.output}/")
     return Spec(kind=_kind(backend, frontend), backend=backend, frontend=frontend, notes=notes)

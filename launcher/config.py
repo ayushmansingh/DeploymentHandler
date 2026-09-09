@@ -3,6 +3,7 @@ the same code runs on the server and on a laptop for development."""
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 
@@ -18,10 +19,17 @@ IS_WINDOWS = os.name == "nt"
 
 
 def _default_data_dir() -> str:
-    """Somewhere writable without administrator rights on either platform."""
+    """Somewhere writable without administrator rights on either platform.
+
+    Deliberately NOT under %LOCALAPPDATA% on Windows. Python installed from
+    the Microsoft Store is a packaged app, and Windows silently redirects its
+    writes under LOCALAPPDATA into a private per-package sandbox. A virtual
+    environment created there lands somewhere other than where we asked, and
+    the interpreter we then try to run does not exist.
+    """
     if IS_WINDOWS:
-        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
-        return str(Path(base) / "AppLauncher")
+        base = os.environ.get("USERPROFILE") or str(Path.home())
+        return str(Path(base) / "AppLauncherData")
     return "/var/lib/applauncher"
 
 
@@ -95,6 +103,49 @@ JUNK_DIRS = {
 # own network namespace, so every app can use the same numbers.
 INTERNAL_BACKEND_PORT = 8000   # where the Python app is told to listen
 INTERNAL_HTTP_PORT = 80        # nginx: serves the frontend, proxies /api
+
+
+def is_store_python() -> bool:
+    """Whether we are running Microsoft Store Python, which redirects writes."""
+    if not IS_WINDOWS:
+        return False
+    executable = sys.executable.replace("/", "\\").lower()
+    return "\\windowsapps\\" in executable or "\\packages\\pythonsoftwarefoundation" in executable
+
+
+def environment_problems() -> list[str]:
+    """Configuration that will fail at deploy time, described in advance.
+
+    Checked before anything is built, because the failure it prevents is
+    unreadable: a virtual environment created at one path and looked for at
+    another, reported only as "failed to locate pyvenv.cfg".
+    """
+    problems: list[str] = []
+    if not is_store_python():
+        return problems
+
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    redirected = bool(
+        local_appdata
+        and str(DATA_DIR).lower().startswith(str(Path(local_appdata)).lower())
+    )
+    if redirected:
+        problems.append(
+            "This is Microsoft Store Python, and LAUNCHER_DATA_DIR is inside "
+            f"%LOCALAPPDATA% ({DATA_DIR}). Windows redirects writes there into a "
+            "private folder, so app environments get created somewhere other "
+            "than where they are looked for and every deploy fails. Set "
+            "LAUNCHER_DATA_DIR to a path outside %LOCALAPPDATA%, for example "
+            "%USERPROFILE%\\AppLauncherData."
+        )
+    else:
+        problems.append(
+            "This is Microsoft Store Python. It works, but it redirects file "
+            "writes under %LOCALAPPDATA% and has other sandbox quirks. If "
+            "anything behaves oddly, install Python from python.org instead "
+            "(choose 'Install for me only' - no administrator rights needed)."
+        )
+    return problems
 
 
 def ensure_dirs() -> None:

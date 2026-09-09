@@ -41,7 +41,7 @@ def _safe_members(zf: zipfile.ZipFile) -> tuple[list[zipfile.ZipInfo], list[str]
         raise ArchiveError(
             f"This ZIP contains {len(infos):,} files, which is far more than a "
             "normal project. It probably includes a node_modules or .venv "
-            "folder — please zip only your source code."
+            "folder - please zip only your source code."
         )
 
     keep: list[zipfile.ZipInfo] = []
