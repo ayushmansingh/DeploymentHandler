@@ -188,6 +188,14 @@ def set_deploy_status(deploy_id: int, status: str, db_path: Path | None = None) 
         conn.execute("UPDATE deploys SET status = ? WHERE id = ?", (status, deploy_id))
 
 
+def list_unfinished_deploys(db_path: Path | None = None) -> list[sqlite3.Row]:
+    """Deploys that were still running when the launcher last stopped."""
+    with connect(db_path) as conn:
+        return conn.execute(
+            "SELECT * FROM deploys WHERE status IN ('queued', 'building')"
+        ).fetchall()
+
+
 def get_deploy(deploy_id: int, db_path: Path | None = None) -> sqlite3.Row | None:
     with connect(db_path) as conn:
         return conn.execute("SELECT * FROM deploys WHERE id = ?", (deploy_id,)).fetchone()

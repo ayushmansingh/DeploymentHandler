@@ -155,9 +155,27 @@ A `.cmd` file is used rather than PowerShell because PowerShell's default
 execution policy blocks unsigned `.ps1` scripts, which would be one more
 thing to work around.
 
-Note the limitation: this starts when **someone logs in**. After an unattended
-reboot the launcher stays down until a person signs in. Running it as a true
-service that starts before logon does need administrator rights.
+**This is the weakest point in the whole setup, so be clear-eyed about it.**
+A Startup-folder shortcut runs when *someone logs in*, not when the machine
+boots. After an unattended restart — a Windows update at 3am, a power cut —
+nothing is running until a person signs in to that machine.
+
+Apps themselves do not survive a reboot either; no process does. What survives
+is on disk: the source, the built frontend, each app's environment, its port,
+and its saved files. Once the launcher starts it re-launches everything that
+was live, in seconds, with no rebuilding. But that only happens after the
+launcher starts.
+
+Running as a true service that starts before logon needs administrator
+rights. Without them the practical options are:
+
+- Log in to the server after any restart. Windows restarts are usually
+  planned, so this is a known checkpoint rather than a surprise.
+- Set Active Hours under Settings → Windows Update so updates do not restart
+  the machine during the working day.
+- Ask for one elevated session to create a scheduled task that runs at
+  startup. It is a smaller ask than most, and it removes this problem
+  permanently.
 
 ## Running with containers instead
 

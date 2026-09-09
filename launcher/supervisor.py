@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import appdata, config, db, detect, native, ports
+from . import appdata, config, db, detect, native, ports, runtime
 
 _thread: threading.Thread | None = None
 _stop = threading.Event()
@@ -130,12 +130,47 @@ def check_once() -> None:
             _strikes.pop(app_id, None)
 
 
+def _is_serving(app_row) -> bool:
+    """Whether this app is answering right now, under either runtime."""
+    if config.RUNTIME == "native":
+        return _front_alive(app_row) and _backend_alive(app_row)
+    return runtime.container_state(app_row["container_id"] or "") == "running"
+
+
+def recover_interrupted_deploys() -> None:
+    """Resolve deploys that were still building when the launcher stopped.
+
+    Nothing is going to finish them - the process that was doing the work is
+    gone - so left alone they stay "building" forever, and the app sits on the
+    dashboard spinning at something that will never happen.
+    """
+    for deploy in db.list_unfinished_deploys():
+        app_row = db.get_app(int(deploy["app_id"]))
+        name = app_row["name"] if app_row else "?"
+        db.finish_deploy(
+            int(deploy["id"]),
+            "failed",
+            "The server restarted while this was building, so it never "
+            "finished. Upload the ZIP again.",
+        )
+        _log(name, "A build was interrupted by the server stopping.")
+
+        if app_row is not None and app_row["status"] in ("building", "new"):
+            # A previous version may still be up; the interrupted build does
+            # not change that.
+            serving = _is_serving(app_row)
+            db.update_app(int(app_row["id"]), status="live" if serving else "failed")
+
+
 def restore_on_startup() -> None:
     """Bring back apps that were running when the launcher last stopped.
 
     After a machine restart the recorded pids belong to nothing, so anything
-    marked live is started again from its existing files.
+    marked live is started again from its existing files. Nothing is rebuilt:
+    the environment and the built frontend are already on disk, so this is a
+    matter of seconds rather than minutes.
     """
+    recover_interrupted_deploys()
     for row in db.list_apps():
         if row["status"] != "live":
             continue

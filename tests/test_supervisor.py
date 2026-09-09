@@ -138,3 +138,61 @@ def test_restore_leaves_survivors_running(live_app, relaunches, monkeypatch):
     supervisor.restore_on_startup()
 
     assert relaunches == []
+
+
+def test_build_interrupted_by_a_restart_is_resolved(live_app, monkeypatch):
+    """Nothing will finish it, so it must not sit on the dashboard forever."""
+    db.update_app(int(live_app["id"]), status="building")
+    deploy_id = db.create_deploy(int(live_app["id"]), "/tmp/x.zip")
+    db.set_deploy_status(deploy_id, "building")
+    alive(monkeypatch, False)
+
+    supervisor.recover_interrupted_deploys()
+
+    deploy = db.get_deploy(deploy_id)
+    assert deploy["status"] == "failed"
+    assert "restarted while this was building" in deploy["error_summary"]
+    assert db.get_app_by_name("alpha")["status"] == "failed"
+
+
+def test_interrupted_build_does_not_take_down_the_running_version(live_app, monkeypatch):
+    """A replace that never finished leaves the previous version serving."""
+    db.update_app(int(live_app["id"]), status="building")
+    deploy_id = db.create_deploy(int(live_app["id"]), "/tmp/x.zip")
+    db.set_deploy_status(deploy_id, "building")
+    alive(monkeypatch, True)
+
+    supervisor.recover_interrupted_deploys()
+
+    assert db.get_deploy(deploy_id)["status"] == "failed"
+    assert db.get_app_by_name("alpha")["status"] == "live"
+
+
+def test_queued_deploys_are_resolved_too(live_app, monkeypatch):
+    deploy_id = db.create_deploy(int(live_app["id"]), "/tmp/x.zip")
+    alive(monkeypatch, True)
+
+    supervisor.recover_interrupted_deploys()
+
+    assert db.get_deploy(deploy_id)["status"] == "failed"
+
+
+def test_finished_deploys_are_left_alone(live_app, monkeypatch):
+    deploy_id = db.create_deploy(int(live_app["id"]), "/tmp/x.zip")
+    db.finish_deploy(deploy_id, "live")
+    alive(monkeypatch, True)
+
+    supervisor.recover_interrupted_deploys()
+
+    assert db.get_deploy(deploy_id)["status"] == "live"
+
+
+def test_restore_resolves_interrupted_builds_as_well(live_app, relaunches, monkeypatch):
+    deploy_id = db.create_deploy(int(live_app["id"]), "/tmp/x.zip")
+    db.set_deploy_status(deploy_id, "building")
+    alive(monkeypatch, False)
+
+    supervisor.restore_on_startup()
+
+    assert db.get_deploy(deploy_id)["status"] == "failed"
+    assert relaunches == ["alpha"], "the live app is still brought back"

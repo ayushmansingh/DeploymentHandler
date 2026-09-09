@@ -134,7 +134,11 @@ failed and the app's own output is added to the log.
 - A supervisor checks every 15 seconds that the processes are alive, and
   restarts the app if they are not.
 - An app over 1 GB of memory for 3 consecutive checks is restarted.
-- Apps are started again after the launcher or the machine restarts.
+- Apps are started again after the launcher restarts, and after a machine
+  restart once the launcher itself is running again. Nothing is rebuilt: the
+  environment and the built frontend are already on disk.
+- A build interrupted by the server stopping is marked failed on the next
+  start, rather than being left as "building" forever.
 
 ---
 
