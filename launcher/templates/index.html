@@ -36,15 +36,32 @@
 <details class="card">
   <summary>Before you ask your AI assistant for the ZIP, paste this into your prompt</summary>
   <p class="muted" style="font-size:13px">This makes the ZIP work on our server the first time.</p>
-  <pre class="log" id="prompt-block">Package this as a ZIP for our internal app server:
-- Layout: backend/ (Python) and frontend/ (React + Vite)
-- backend/requirements.txt, pinned to versions that exist on PyPI
-- Backend listens on 0.0.0.0:8000
-- frontend/package.json MUST have a "build" script
-- ALL frontend API calls use relative paths starting with /api
-  e.g. fetch("/api/items") - NEVER http://localhost:8000
-- The app must start with no .env file; use safe defaults
-- Do not include node_modules or .venv</pre>
+  <pre class="log" id="prompt-block">Package this as a ZIP for our internal app server. Follow these rules exactly.
+
+STRUCTURE
+- Two folders at the root of the ZIP: backend/ and frontend/
+- Do NOT include node_modules, .venv, or build output in the ZIP
+
+BACKEND (Python)
+- backend/main.py must create the app at module level:  app = FastAPI()
+- backend/requirements.txt, pinned to versions that really exist on PyPI
+- EVERY backend route must start with /api
+  e.g. @app.get("/api/items") - a route at /items will not be reachable
+- The app must start with no .env file present; use safe defaults for every
+  setting, and never require an API key to boot
+- The server starts the app for you. A `if __name__ == "__main__"` block is
+  harmless but is not used, and the port is chosen by the server
+
+FRONTEND (React + Vite)
+- frontend/package.json must have a "build" script
+- The build must output to frontend/dist
+- EVERY API call must use a relative path starting with /api
+  e.g. fetch("/api/items")  -  NEVER http://localhost:8000 or any absolute URL
+
+NOT SUPPORTED - do not use these
+- WebSockets
+- Writing to disk. Files the app saves are erased when it is replaced with a
+  newer ZIP. Keep data in memory, or read it from an existing database or API.</pre>
   <button onclick="navigator.clipboard.writeText(document.getElementById('prompt-block').innerText)">
     Copy prompt</button>
 </details>

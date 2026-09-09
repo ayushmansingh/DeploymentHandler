@@ -197,6 +197,9 @@ Almost nothing — but the ZIP has to contain a recognisable app. The dashboard
 shows a prompt block to paste into Claude or Codex before asking for the ZIP,
 which makes the output conform on the first try.
 
+The block lives in [PROMPT.md](PROMPT.md), which is the canonical copy — the
+dashboard renders the same text, and a test fails if the two drift apart.
+
 Auto-detection handles the common layouts. For anything unusual, a
 `launcher.yaml` at the root wins:
 
