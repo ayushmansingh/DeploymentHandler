@@ -3,5 +3,8 @@
 # unreadable "exec format error", so pin LF for everything textual.
 * text=auto eol=lf
 *.sh text eol=lf
+# Windows batch files need CRLF; cmd.exe mis-parses LF-only files.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
 *.png binary
 *.zip binary

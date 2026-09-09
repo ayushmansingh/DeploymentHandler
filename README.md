@@ -95,31 +95,26 @@ Skip this only if nobody will deploy an app with a frontend.
 ```powershell
 git clone -b claude/shared-server-app-launcher-s0h5cx `
   https://github.com/ayushmansingh/DeploymentHandler.git C:\tools\applauncher
-cd C:\tools\applauncher
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
 ```
 
-### 4. Configure
+Then run `deploy\install-windows.cmd` (double-clicking works). It creates the
+Python environment, installs dependencies, and runs the self-test.
 
-Create `start-launcher.ps1` next to it:
+### 4. Configure and start
 
-```powershell
-$env:LAUNCHER_PUBLIC_HOST = "192.168.1.50"   # the server's LAN IP
-$env:LAUNCHER_DATA_DIR    = "C:\AppLauncherData"
-$env:LAUNCHER_NPM         = "C:\tools\node\npm.cmd"
-$env:LAUNCHER_MAX_BUILDS  = "2"
-C:\tools\applauncher\.venv\Scripts\python.exe -m uvicorn launcher.app:app `
-  --host 0.0.0.0 --port 8080
-```
-
-`LAUNCHER_PUBLIC_HOST` matters: it is what appears in every link handed to
-your team. Left as `localhost`, those links only work on the server itself.
+Edit `deploy\start-launcher.cmd` and set `LAUNCHER_PUBLIC_HOST` to the
+server's own LAN address — find it with `ipconfig`. Left as an address the
+rest of the network cannot reach, every link handed to your team will be
+broken.
 
 Give the machine a **static IP or a DHCP reservation** before anyone
-bookmarks anything — if the address moves, every saved link breaks at once.
+bookmarks anything; if the address moves, every saved link breaks at once.
+
+Run `deploy\start-launcher.cmd` to start it.
 
 ### 5. Verify
+
+`install-windows.cmd` runs this for you, but you can run it again any time:
 
 ```powershell
 .venv\Scripts\python scripts\selftest.py
@@ -141,9 +136,13 @@ unavailable, no disk space, dependencies not installed).
 ### 6. Start it at logon
 
 Windows has no privileged-port restriction, so no elevation is needed to
-serve on 8080 or 80. For it to come back after a restart, put a shortcut to
-`start-launcher.ps1` in the Startup folder — press `Win+R`, run
-`shell:startup`, and drop it there. No admin required.
+serve on 8080. For the launcher to come back after a restart, put a shortcut
+to `deploy\start-launcher.cmd` in the Startup folder — press `Win+R`, run
+`shell:startup`, and drop the shortcut there. No admin required.
+
+A `.cmd` file is used rather than PowerShell because PowerShell's default
+execution policy blocks unsigned `.ps1` scripts, which would be one more
+thing to work around.
 
 Note the limitation: this starts when **someone logs in**. After an unattended
 reboot the launcher stays down until a person signs in. Running it as a true
