@@ -171,10 +171,12 @@ document.addEventListener("click", async (ev) => {
   if (!btn) return;
   const deploy = btn.dataset.deploy ? ("?deploy=" + btn.dataset.deploy) : query;
   const text = await fetch(`/app/${appName}/repair-prompt${deploy}`).then(r => r.text());
-  await navigator.clipboard.writeText(text);
-  const original = btn.textContent;
-  btn.textContent = "Copied - paste into Claude";
-  setTimeout(() => { btn.textContent = original; }, 4000);
+  const copied = await copyWithFeedback(btn, text, "Copied - paste into Claude");
+  if (!copied) {
+    // No clipboard on this origin: show the text so it can be selected.
+    logBox.open = true;
+    loadLog();
+  }
 });
 </script>
 {% endblock %}

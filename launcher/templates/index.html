@@ -118,15 +118,14 @@ setTimeout(refreshApps, isBusy() ? BUSY_MS : IDLE_MS);
 
 document.getElementById("copy-prompt").addEventListener("click", async (ev) => {
   // Hold the element: ev.currentTarget is only valid during dispatch, and is
-  // null by the time the clipboard promise resolves.
+  // null by the time the copy resolves.
   const btn = ev.currentTarget;
   // textContent, not innerText: a collapsed <details> is not rendered, so
   // innerText would copy an empty string.
-  await navigator.clipboard.writeText(
-    document.getElementById("prompt-block").textContent
-  );
-  btn.textContent = "Copied - paste into Claude";
-  setTimeout(() => { btn.textContent = "Copy prompt"; }, 4000);
+  const text = document.getElementById("prompt-block").textContent;
+  const copied = await copyWithFeedback(btn, text, "Copied - paste into Claude");
+  // If the clipboard is unavailable, open the text so it can be selected.
+  if (!copied) document.querySelector("#deploy ~ .card details").open = true;
 });
 </script>
 {% endblock %}

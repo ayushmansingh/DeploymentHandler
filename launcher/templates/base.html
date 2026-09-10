@@ -235,5 +235,48 @@
   <a href="/admin/update" style="font-size:12.5px;color:var(--muted);text-decoration:none">Server</a>
 </header>
 <main>{% block body %}{% endblock %}</main>
+<script>
+// Copying to the clipboard, on a plain HTTP address.
+//
+// navigator.clipboard only exists in a secure context. This server is reached
+// over http:// at a LAN address, which is not one - so on every machine except
+// the server itself that API is undefined and calling it throws. The old
+// execCommand path still works everywhere and is what actually runs here.
+async function copyText(text) {
+  if (window.isSecureContext && navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) { /* fall through to the fallback */ }
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.top = "0";
+    area.style.left = "-2000px";
+    document.body.appendChild(area);
+    area.select();
+    area.setSelectionRange(0, area.value.length);   // iOS needs this
+    const copied = document.execCommand("copy");
+    document.body.removeChild(area);
+    return copied;
+  } catch (err) {
+    return false;
+  }
+}
+
+// Feedback that says which of the two things happened, because a button that
+// silently does nothing is the problem being fixed here.
+async function copyWithFeedback(button, text, doneLabel) {
+  const original = button.dataset.label || button.textContent;
+  button.dataset.label = original;
+  const copied = await copyText(text);
+  button.textContent = copied ? doneLabel : "Could not copy - select it by hand";
+  setTimeout(() => { button.textContent = button.dataset.label; }, 4000);
+  return copied;
+}
+</script>
 </body>
 </html>
