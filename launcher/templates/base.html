@@ -5,97 +5,232 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}App Launcher{% endblock %}</title>
 <style>
+  /* Tokens. Status hues are fixed and never carry meaning alone - every meter
+     and pill shows a number or a word beside the colour. */
   :root {
-    --bg: #f6f7f9; --card: #ffffff; --ink: #1a1d21; --muted: #626b77;
-    --line: #e3e6ea; --accent: #2f6bd8; --ok: #1a7f4b; --bad: #c1352b;
-    --warn: #a86b00;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --line: rgba(11, 11, 11, .10);
+    --grid: #e1e0d9;
+    --accent: #256abf;
+    --accent-hi: #1c5cab;
+    --accent-ink: #ffffff;
+    --track: #cde2fb;
+    --good: #0ca30c;
+    --good-ink: #006300;
+    --warning: #fab219;
+    --warning-ink: #7a5200;
+    --critical: #d03b3b;
+    --critical-ink: #a32323;
+    --shadow: 0 1px 2px rgba(11,11,11,.04), 0 4px 12px rgba(11,11,11,.05);
+    --r: 12px;
   }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --line: rgba(255, 255, 255, .12);
+      --grid: #2c2c2a;
+      --accent: #5598e7;
+      --accent-hi: #6da7ec;
+      /* White on this blue is about 3:1 - too weak for button text, so the
+         dark theme puts dark ink on the light accent instead. */
+      --accent-ink: #0b0b0b;
+      --track: #184f95;
+      --good-ink: #0ca30c;
+      --warning-ink: #fab219;
+      --critical-ink: #e46b6b;
+      --shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 16px 24px; }
-  header a { color: inherit; text-decoration: none; font-weight: 600; font-size: 17px; }
-  main { max-width: 940px; margin: 0 auto; padding: 24px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  h2 { font-size: 16px; margin: 28px 0 10px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
-  .card { background: var(--card); border: 1px solid var(--line);
-          border-radius: 10px; padding: 20px; margin-bottom: 18px; }
-  label { display: block; font-weight: 600; margin: 14px 0 5px; font-size: 14px; }
-  input[type=text], input[type=file] { width: 100%; padding: 9px 11px;
-          border: 1px solid var(--line); border-radius: 7px; font: inherit; background: #fff; }
-  button, .btn { font: inherit; padding: 9px 15px; border-radius: 7px; cursor: pointer;
-          border: 1px solid var(--line); background: #fff; color: var(--ink);
-          text-decoration: none; display: inline-block; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  button.danger { color: var(--bad); }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
-  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 20px;
-          background: #eef0f3; color: var(--muted); }
-  .pill.live { background: #e4f4ea; color: var(--ok); }
-  .pill.failed { background: #fdeceb; color: var(--bad); }
-  .pill.building { background: #fdf3e0; color: var(--warn); }
-  pre.log { background: #16181c; color: #dfe3e8; padding: 14px; border-radius: 8px;
-          overflow-x: auto; max-height: 460px; overflow-y: auto; font-size: 12.5px;
-          line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-  .banner { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
-  .banner.bad { background: #fdeceb; border: 1px solid #f3c9c6; color: #7d211a; }
-  .banner.ok { background: #e4f4ea; border: 1px solid #bfe3cd; color: #13603a; }
-  .banner.working { background: #fdf3e0; border: 1px solid #f0dcb4; color: #6d4600; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--line);
+    padding: 14px 24px; position: sticky; top: 0; z-index: 5;
+  }
+  header a.brand {
+    color: inherit; text-decoration: none; font-weight: 640;
+    font-size: 15px; letter-spacing: -.01em;
+    display: inline-flex; align-items: center; gap: 9px;
+  }
+  header .dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
+    flex: none;
+  }
+  main { max-width: 1020px; margin: 0 auto; padding: 28px 24px 56px; }
+
+  h1 { font-size: 24px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 4px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em;
+       color: var(--muted); margin: 34px 0 12px; font-weight: 640; }
+  .sub { color: var(--ink-2); margin: 0 0 20px; font-size: 14px; }
   .muted { color: var(--muted); }
-  code { background: #eef0f3; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 20px; margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  label { display: block; font-weight: 600; margin: 16px 0 6px; font-size: 13.5px; }
+  input[type=text], input[type=file] {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--grid);
+    border-radius: 9px; font: inherit; background: var(--page); color: var(--ink);
+  }
+  input[type=text]:focus, input[type=file]:focus {
+    outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent;
+  }
+
+  button, .btn {
+    font: inherit; font-weight: 550; padding: 9px 15px; border-radius: 9px;
+    cursor: pointer; border: 1px solid var(--grid); background: var(--surface);
+    color: var(--ink); text-decoration: none; display: inline-block;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  button:hover, .btn:hover { border-color: var(--muted); }
+  button.primary {
+    background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+    font-weight: 600;
+  }
+  button.primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+  button.danger { color: var(--critical-ink); }
+  button.danger:hover { border-color: var(--critical); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 8px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--muted); font-weight: 640; }
+
+  .pill {
+    font-size: 11.5px; font-weight: 640; padding: 3px 9px; border-radius: 20px;
+    background: var(--grid); color: var(--ink-2); letter-spacing: .01em;
+    white-space: nowrap;
+  }
+  .pill.live { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good-ink); }
+  .pill.failed { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical-ink); }
+  .pill.building, .pill.queued { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-ink); }
+
+  pre.log {
+    background: #16181c; color: #dfe3e8; padding: 15px; border-radius: 10px;
+    overflow: auto; max-height: 460px; font-size: 12.5px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  code {
+    background: var(--grid); padding: 1px 6px; border-radius: 5px; font-size: 12.5px;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+
+  .banner { padding: 13px 15px; border-radius: 10px; margin-bottom: 16px; font-size: 14px;
+            border: 1px solid transparent; }
+  .banner.bad { background: color-mix(in srgb, var(--critical) 10%, var(--surface));
+                border-color: color-mix(in srgb, var(--critical) 30%, transparent);
+                color: var(--critical-ink); }
+  .banner.ok { background: color-mix(in srgb, var(--good) 10%, var(--surface));
+               border-color: color-mix(in srgb, var(--good) 28%, transparent);
+               color: var(--good-ink); }
+  .banner.working { background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+                    border-color: color-mix(in srgb, var(--warning) 34%, transparent);
+                    color: var(--warning-ink); }
+  .banner a { color: inherit; }
+
   details summary { cursor: pointer; font-weight: 600; }
   details summary:hover { color: var(--accent); }
-  .logbar { display: flex; align-items: center; gap: 10px; margin: 12px 0 10px; }
+  .logbar { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; flex-wrap: wrap; }
   .logbar .stamp { font-size: 12.5px; color: var(--muted); }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between;
+               gap: 16px; margin-bottom: 2px; }
   .step-head { display: flex; align-items: center; gap: 10px; }
   .step { display: inline-flex; align-items: center; justify-content: center;
           width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
-          color: #fff; font-size: 12.5px; font-weight: 700; flex: none; }
+          color: var(--accent-ink); font-size: 12.5px; font-weight: 700; flex: none; }
 
-  /* Dashboard */
-  .page-head { display: flex; align-items: center; justify-content: space-between;
-          gap: 16px; margin-bottom: 2px; }
-  .page-head h1 { margin: 0; }
+  /* --- Meters: one ratio against a limit. The unfilled track is a lighter
+     step of the fill's own ramp, so the state reads across the whole bar. --- */
+  .meter { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .meter > i { display: block; height: 100%; border-radius: 3px;
+               background: var(--accent); transition: width .4s ease; }
+  .meter[data-state="warning"] { background: color-mix(in srgb, var(--warning) 25%, transparent); }
+  .meter[data-state="warning"] > i { background: var(--warning); }
+  .meter[data-state="critical"] { background: color-mix(in srgb, var(--critical) 22%, transparent); }
+  .meter[data-state="critical"] > i { background: var(--critical); }
+
+  /* --- Stat tiles: label, value, meter. No chart - these are single values. --- */
+  .stats { display: grid; gap: 14px; margin-bottom: 8px;
+           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .stat { background: var(--surface); border: 1px solid var(--line);
+          border-radius: var(--r); padding: 15px 16px; box-shadow: var(--shadow); }
+  .stat .label { font-size: 12px; color: var(--muted); font-weight: 600;
+                 letter-spacing: .03em; text-transform: uppercase; }
+  .stat .value { font-size: 25px; font-weight: 640; letter-spacing: -.02em;
+                 margin: 6px 0 3px; line-height: 1.1; }
+  .stat .value small { font-size: 14px; font-weight: 500; color: var(--muted);
+                       letter-spacing: 0; }
+  .stat .note { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+
+  /* --- App cards --- */
   .grid { display: grid; gap: 14px; margin-bottom: 26px;
-          grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
-
-  /* The whole card is the click target for opening the app; the Manage link
-     sits above it so it stays separately clickable. */
-  /* Flex column so the action row sits at the bottom of every card, however
-     much text the card above it holds. */
+          grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
   .app-card { position: relative; display: flex; flex-direction: column;
-          background: var(--card); border: 1px solid var(--line);
-          border-left: 3px solid var(--line); border-radius: 10px; padding: 15px 16px;
-          transition: box-shadow .12s ease, transform .12s ease; }
-  .app-card.live { border-left-color: var(--ok); }
-  .app-card.failed { border-left-color: var(--bad); }
-  .app-card.building { border-left-color: var(--warn); }
-  .app-card.live:hover { box-shadow: 0 3px 12px rgba(20,25,35,.10); transform: translateY(-1px); }
+          background: var(--surface); border: 1px solid var(--line);
+          border-left: 3px solid var(--grid); border-radius: var(--r);
+          padding: 16px 17px; box-shadow: var(--shadow);
+          transition: box-shadow .14s ease, transform .14s ease; }
+  .app-card.live { border-left-color: var(--good); }
+  .app-card.failed { border-left-color: var(--critical); }
+  .app-card.building, .app-card.queued { border-left-color: var(--warning); }
+  .app-card.live:hover { box-shadow: 0 2px 4px rgba(11,11,11,.06), 0 10px 24px rgba(11,11,11,.09);
+                         transform: translateY(-1px); }
   .app-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .app-name { font-weight: 650; font-size: 16px; color: var(--ink); text-decoration: none;
-          word-break: break-word; }
-  .stretch::after { content: ""; position: absolute; inset: 0; border-radius: 10px; }
+  .app-name { font-weight: 640; font-size: 15.5px; color: var(--ink);
+              text-decoration: none; word-break: break-word; letter-spacing: -.01em; }
+  .stretch::after { content: ""; position: absolute; inset: 0; border-radius: var(--r); }
   .app-url { font-size: 12.5px; color: var(--accent); margin-top: 5px; word-break: break-all; }
   .app-url.muted { color: var(--muted); }
-  .app-error { font-size: 12.5px; color: var(--bad); margin-top: 8px;
+  .app-error { font-size: 12.5px; color: var(--critical-ink); margin-top: 9px;
           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
           overflow: hidden; }
-  .app-meta { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .app-meta { font-size: 12.5px; color: var(--muted); margin-top: 9px; }
+
+  .usage { margin-top: 13px; display: grid; gap: 9px; }
+  .usage-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 9px;
+               align-items: center; font-size: 11.5px; color: var(--muted); }
+  .usage-row .spacer { border-bottom: 1px dotted var(--grid); }
+  .usage-row .n { color: var(--ink-2); font-variant-numeric: tabular-nums;
+                  font-size: 12px; }
+
   .app-actions { display: flex; align-items: center; justify-content: space-between;
           gap: 10px; margin-top: auto; padding-top: 14px; }
   .app-actions .hint { font-size: 12px; color: var(--muted); }
   .app-actions .manage { position: relative; z-index: 1; font-size: 13px;
-          color: var(--muted); text-decoration: none; border: 1px solid var(--line);
-          padding: 4px 10px; border-radius: 6px; background: #fff; margin-left: auto; }
+          color: var(--ink-2); text-decoration: none; border: 1px solid var(--grid);
+          padding: 5px 11px; border-radius: 8px; background: var(--surface);
+          margin-left: auto; }
   .app-actions .manage:hover { color: var(--ink); border-color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
 </style>
 </head>
 <body>
-<header><a href="/">App Launcher</a></header>
+<header><a class="brand" href="/"><span class="dot"></span>App Launcher</a></header>
 <main>{% block body %}{% endblock %}</main>
 </body>
 </html>

@@ -1,20 +1,51 @@
-{# The app grid. Rendered into the page on load, and re-fetched by the
-   dashboard's poll so a building app updates in place. Kept in one file so
-   the two paths cannot drift apart. #}
+{# The app grid and the machine's own numbers. Rendered into the page on load,
+   and re-fetched by the dashboard's poll so a building app updates in place.
+   Kept in one file so the two paths cannot drift apart. #}
 <div data-busy="{{ 1 if busy else 0 }}">
-<p class="sub" id="app-count">
-  {% if apps %}
-    {{ live_count }} of {{ apps | length }} running
-  {% else %}
-    Nothing deployed yet
-  {% endif %}
-</p>
+
+{# Stat tiles, not charts: each of these is a single value against a limit. #}
+<div class="stats">
+  <div class="stat">
+    <div class="label">Applications</div>
+    <div class="value">{{ live_count }} <small>of {{ apps | length }} running</small></div>
+    <div class="note">
+      {% if apps | length == 0 %}Nothing deployed yet
+      {% elif live_count == apps | length %}All healthy
+      {% else %}{{ apps | length - live_count }} not running{% endif %}
+    </div>
+  </div>
+
+  <div class="stat">
+    <div class="label">Server memory</div>
+    <div class="value">{{ "%.1f"|format(host.memory_used_gb) }} <small>of {{ "%.0f"|format(host.memory_total_gb) }} GB</small></div>
+    <div class="note">{{ host.memory_percent | round | int }}% in use</div>
+    <div class="meter" data-state="{{ host_states.memory }}">
+      <i style="width: {{ host.memory_percent | round | int }}%"></i></div>
+  </div>
+
+  <div class="stat">
+    <div class="label">Server CPU</div>
+    <div class="value">{{ host.cpu_percent | round | int }}<small>%</small></div>
+    <div class="note">{{ host.cpu_cores }} cores</div>
+    <div class="meter" data-state="{{ host_states.cpu }}">
+      <i style="width: {{ host.cpu_percent | round | int }}%"></i></div>
+  </div>
+
+  <div class="stat">
+    <div class="label">Disk</div>
+    <div class="value">{{ "%.0f"|format(host.disk_free_gb) }} <small>GB free</small></div>
+    <div class="note">{{ host.disk_percent | round | int }}% of {{ "%.0f"|format(host.disk_total_gb) }} GB used</div>
+    <div class="meter" data-state="{{ host_states.disk }}">
+      <i style="width: {{ host.disk_percent | round | int }}%"></i></div>
+  </div>
+</div>
 
 {% if not apps %}
-  <div class="card muted">
-    No applications yet. Upload a ZIP below to deploy the first one.
+  <div class="card muted" style="margin-top:16px">
+    No applications yet. Follow the two steps below to deploy the first one.
   </div>
 {% else %}
+  <h2>Applications</h2>
   <div class="grid">
   {% for app in apps %}
     {% set clickable = app.status == 'live' and app.url %}
@@ -39,17 +70,35 @@
         <div class="app-error">{{ app.error }}</div>
       {% endif %}
 
+      {% if app.usage and app.status == 'live' %}
+      <div class="usage">
+        <div class="usage-row">
+          <span>CPU</span>
+          <span class="meter" data-state="{{ app.usage.cpu_state }}">
+            <i style="width: {{ app.usage.cpu_percent | round | int }}%"></i></span>
+          <span class="n">{{ app.usage.cpu_percent }}%</span>
+        </div>
+        <div class="usage-row">
+          <span>RAM</span>
+          <span class="meter" data-state="{{ app.usage.memory_state }}">
+            <i style="width: {{ app.usage.memory_percent }}%"></i></span>
+          <span class="n">{{ app.usage.memory_mb }} MB</span>
+        </div>
+        <div class="usage-row" title="Source, installed packages and saved files">
+          <span>Disk</span>
+          <span class="spacer"></span>
+          <span class="n">{{ app.usage.disk }}</span>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="app-meta">
         {% if app.owner %}{{ app.owner }}{% else %}unknown{% endif %}
         {% if app.deployed_at %} · {{ app.deployed_at | datetime }}{% endif %}
-        {% if app.memory_mb %} · {{ app.memory_mb }} MB{% endif %}
-        {% if app.data_size != 'empty' %} · {{ app.data_size }} saved{% endif %}
       </div>
 
       <div class="app-actions">
-        {% if clickable %}
-          <span class="hint">Click to open</span>
-        {% endif %}
+        {% if clickable %}<span class="hint">Click to open</span>{% endif %}
         <a class="manage" href="/app/{{ app.name }}">Manage</a>
       </div>
     </div>

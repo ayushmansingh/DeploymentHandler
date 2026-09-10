@@ -16,7 +16,8 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appdata, config, db, deployer, errors, files, naming, native, ports
+from . import appdata, config, db, deployer, errors, files, metrics, naming, native
+from . import ports
 from . import runtime
 from . import supervisor
 
@@ -96,31 +97,43 @@ def _require_app(name: str):
 _STATUS_ORDER = {"live": 0, "building": 1, "stopped": 2, "new": 3, "failed": 4}
 
 
-def _memory_mb(row) -> float | None:
-    """Resident memory for an app, when the runtime can tell us cheaply."""
-    if config.RUNTIME != "native" or row["status"] != "live":
-        return None
-    used = native.memory_mb(row["front_pid"]) + native.memory_mb(row["pid"])
-    return round(used) if used else None
-
-
 def _app_summary(row) -> dict:
     """Everything the dashboard shows about one app."""
     latest = db.list_deploys(int(row["id"]), limit=1)
     deploy = latest[0] if latest else None
-    return {
+    usage = metrics.for_app(row) if config.RUNTIME == "native" else None
+
+    summary = {
         "name": row["name"],
         "status": row["status"],
         "kind": row["kind"],
         "owner": row["owner"] or "",
         "url": _app_url(row),
         "port": row["host_port"],
-        "memory_mb": _memory_mb(row),
-        "deployed_at": deploy["created_at"] if deploy else None,
         "data_size": appdata.human_size(appdata.size_bytes(row["name"])),
+        "deployed_at": deploy["created_at"] if deploy else None,
         "deploy_status": deploy["status"] if deploy else None,
         "error": deploy["error_summary"] if deploy else None,
+        "usage": None,
+        "memory_mb": None,
     }
+    if usage is not None:
+        # Memory is shown against the per-app limit, since that is the number
+        # the supervisor acts on - not against the whole machine.
+        memory_percent = min(
+            100.0, usage.memory_mb / max(config.APP_MEMORY_LIMIT_MB, 1) * 100
+        )
+        summary["usage"] = {
+            "cpu_percent": round(usage.cpu_percent, 1),
+            "cpu_state": metrics.state_for(usage.cpu_percent),
+            "memory_mb": round(usage.memory_mb),
+            "memory_percent": round(memory_percent),
+            "memory_state": metrics.state_for(memory_percent),
+            "memory_limit_mb": config.APP_MEMORY_LIMIT_MB,
+            "disk": metrics.human_bytes(usage.disk_bytes),
+        }
+        summary["memory_mb"] = summary["usage"]["memory_mb"] or None
+    return summary
 
 
 def _all_summaries() -> list[dict]:
@@ -132,6 +145,7 @@ def _all_summaries() -> list[dict]:
 def _grid_context() -> dict:
     """Context for the app grid, including whether anything is still working."""
     apps = _all_summaries()
+    host = metrics.host()
     return {
         "apps": apps,
         "live_count": sum(1 for a in apps if a["status"] == "live"),
@@ -139,6 +153,12 @@ def _grid_context() -> dict:
             a["status"] in ("building", "new") or a["deploy_status"] in ("queued", "building")
             for a in apps
         ),
+        "host": host,
+        "host_states": {
+            "cpu": metrics.state_for(host["cpu_percent"]),
+            "memory": metrics.state_for(host["memory_percent"]),
+            "disk": metrics.state_for(host["disk_percent"]),
+        },
     }
 
 
@@ -293,6 +313,8 @@ def app_detail(request: Request, name: str, deploy: int | None = None):
             "container_state": state,
             "data_size": appdata.human_size(appdata.size_bytes(name)),
             "data_dir": appdata.dir_for(name),
+            "usage": _app_summary(row)["usage"],
+            "memory_strikes": config.MEMORY_STRIKES_BEFORE_RESTART,
         },
     )
 
@@ -438,6 +460,7 @@ def delete_app(name: str):
         if not files.remove_tree(directory / name)
     ]
     appdata.remove(name)
+    metrics.forget(name)
 
     if leftovers:
         # The app is gone from the dashboard either way; say what is still on

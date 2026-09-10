@@ -33,6 +33,34 @@
   </form>
 </div>
 
+{% if usage and app['status'] == 'live' %}
+<div class="card">
+  <strong>Resource use</strong>
+  <div class="usage" style="margin-top:12px">
+    <div class="usage-row">
+      <span>CPU</span>
+      <span class="meter" data-state="{{ usage.cpu_state }}">
+        <i style="width: {{ usage.cpu_percent | round | int }}%"></i></span>
+      <span class="n">{{ usage.cpu_percent }}% of the machine</span>
+    </div>
+    <div class="usage-row">
+      <span>RAM</span>
+      <span class="meter" data-state="{{ usage.memory_state }}">
+        <i style="width: {{ usage.memory_percent }}%"></i></span>
+      <span class="n">{{ usage.memory_mb }} of {{ usage.memory_limit_mb }} MB</span>
+    </div>
+    <div class="usage-row" title="Source, installed packages and saved files">
+      <span>Disk</span>
+      <span class="spacer"></span>
+      <span class="n">{{ usage.disk }}</span>
+    </div>
+  </div>
+  <p class="muted" style="font-size:12.5px;margin:12px 0 0">
+    An app over its memory limit for
+    {{ memory_strikes }} checks in a row is restarted automatically.</p>
+</div>
+{% endif %}
+
 <div class="card">
   <strong>Saved files</strong>
   <p class="muted" style="font-size:13px;margin:4px 0 0">

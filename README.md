@@ -14,9 +14,10 @@ no administrator rights.
 3. Watch the build log scroll.
 4. Get a link like `http://192.168.1.50:24817`.
 
-The front page is the directory of everything running on the server: one card
-per app, running ones first, each showing its address, who deployed it, when,
-and how much memory it is using. **Clicking a card opens that application**;
+The front page is the directory of everything running on the server. It opens
+with the machine's own numbers - memory, CPU and disk, each against its limit -
+then one card per app, running ones first, showing its address, who deployed
+it, and its current CPU, memory and disk use. **Clicking a card opens that application**;
 the Manage button beside it goes to the app's own page for logs, replacing,
 rollback and stop or start. The grid refreshes itself, so an app that is
 mid-build turns into a working link without anyone reloading the page.
