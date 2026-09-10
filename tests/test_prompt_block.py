@@ -84,5 +84,10 @@ def test_copy_button_reads_text_not_rendered_content():
     """A collapsed <details> is not rendered, so innerText would copy nothing."""
     html = INDEX.read_text()
     copy_section = html[html.index('id="copy-prompt"'):]
-    assert "textContent" in copy_section
-    assert "innerText" not in copy_section
+    # Comments explain why innerText is wrong, so judge the code alone.
+    code = "\n".join(
+        line for line in copy_section.splitlines()
+        if not line.strip().startswith("//")
+    )
+    assert "textContent" in code
+    assert "innerText" not in code
