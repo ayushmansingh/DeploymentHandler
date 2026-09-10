@@ -140,6 +140,8 @@ failed and the app's own output is added to the log.
   environment and the built frontend are already on disk.
 - A build interrupted by the server stopping is marked failed on the next
   start, rather than being left as "building" forever.
+- The launcher itself can be replaced from `/admin/update` without going to
+  the server. Applications keep running while it restarts.
 
 ---
 

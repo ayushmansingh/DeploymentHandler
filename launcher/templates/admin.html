@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Update the launcher{% endblock %}
+{% block body %}
+<div class="page-head">
+  <div>
+    <h1>Update the launcher</h1>
+    <p class="sub">Replace the App Launcher itself, from here, without going to the server.</p>
+  </div>
+  <a class="btn" href="/">All applications</a>
+</div>
+
+{% if message %}<div class="banner {{ message_kind }}">{{ message }}</div>{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">Version</div>
+    <div class="value" style="font-size:20px">{{ version }}</div>
+    <div class="note">running since {{ started_at | datetime }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Installed at</div>
+    <div class="value" style="font-size:14px;font-weight:500;word-break:break-all">{{ install_dir }}</div>
+  </div>
+  <div class="stat">
+    <div class="label">Applications</div>
+    <div class="value">{{ app_count }}</div>
+    <div class="note">unaffected by an update</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="step-head"><span class="step">!</span><strong>What happens when you do this</strong></div>
+  <ul class="muted" style="font-size:13.5px;line-height:1.7;margin:10px 0 0;padding-left:20px">
+    <li>Your deployed applications <strong>keep running throughout</strong> - they are
+      separate processes and are not restarted.</li>
+    <li><code>deploy\settings.cmd</code> and the Python environment are kept as they are.</li>
+    <li>The current version is backed up first. If the new one does not answer
+      within a minute, the backup is restored and started automatically.</li>
+    <li>This page will be unreachable for about 20 seconds while the launcher restarts.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <div class="step-head"><span class="step">↑</span><strong>Upload a launcher ZIP</strong></div>
+  <form method="post" action="/admin/update" enctype="multipart/form-data"
+        onsubmit="this.querySelector('button').disabled = true;
+                  this.querySelector('button').textContent = 'Updating...';">
+    <label for="file">Launcher ZIP file</label>
+    <input type="file" id="file" name="file" accept=".zip,application/zip" required>
+    <p class="muted" style="font-size:13px;margin:6px 0 0">
+      This must be the launcher's own ZIP, not an application. It is checked
+      before anything is replaced.</p>
+    <p style="margin:18px 0 0"><button type="submit" class="primary">Update and restart</button></p>
+  </form>
+</div>
+
+{% if update_log %}
+<details class="card">
+  <summary>Last update log</summary>
+  <pre class="log" style="margin-top:12px">{{ update_log }}</pre>
+</details>
+{% endif %}
+{% endblock %}

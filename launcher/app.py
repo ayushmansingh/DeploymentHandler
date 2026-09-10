@@ -16,18 +16,23 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from . import __version__
 from . import appdata, config, db, deployer, errors, files, metrics, naming, native
+from . import selfupdate
 from . import ports
 from . import runtime
 from . import supervisor
 
 BASE_DIR = Path(__file__).parent
+_started_at = time.time()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     config.ensure_dirs()
     db.init()
+    # Remember how we were started, so an update can start us the same way.
+    selfupdate.record_launch_command()
     if config.RUNTIME == "native":
         # Apps do not survive a machine restart on their own, so bring back
         # whatever was running before, then keep watching them.
@@ -472,6 +477,124 @@ def delete_app(name: str):
             + ". They can be removed by hand, and will not affect anything."
         )
     return RedirectResponse("/", status_code=303)
+
+
+def _update_log() -> str:
+    try:
+        text = (config.DATA_DIR / "updates" / "update.log").read_text(errors="replace")
+    except FileNotFoundError:
+        return ""
+    return "\n".join(text.splitlines()[-40:])
+
+
+@app.get("/admin/update", response_class=HTMLResponse)
+def admin_update(request: Request, message: str = "", kind: str = "ok"):
+    return templates.TemplateResponse(
+        request, "admin.html",
+        {
+            "version": __version__,
+            "started_at": _started_at,
+            "install_dir": selfupdate.INSTALL_DIR,
+            "app_count": len(db.list_apps()),
+            "update_log": _update_log(),
+            "message": message,
+            "message_kind": kind,
+        },
+    )
+
+
+@app.post("/admin/update")
+async def apply_update(request: Request, file: UploadFile = None):  # type: ignore[assignment]
+    """Replace the launcher with an uploaded copy of itself, then restart.
+
+    Everything that can be checked is checked before a single file is
+    replaced, because this is the one upload that can make the server
+    unreachable from here.
+    """
+    if file is None or not file.filename:
+        return RedirectResponse(
+            "/admin/update?message=Please+choose+a+ZIP+file.&kind=bad", status_code=303
+        )
+
+    config.ensure_dirs()
+    incoming = config.DATA_DIR / "updates" / "upload.zip"
+    incoming.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    with open(incoming, "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            written += len(chunk)
+            if written > config.MAX_UPLOAD_BYTES:
+                out.close()
+                incoming.unlink(missing_ok=True)
+                return RedirectResponse(
+                    "/admin/update?message=That+ZIP+is+too+large.&kind=bad",
+                    status_code=303,
+                )
+            out.write(chunk)
+
+    try:
+        staged = selfupdate.stage(incoming)
+    except selfupdate.UpdateError as exc:
+        return templates.TemplateResponse(
+            request, "admin.html",
+            {
+                "version": __version__, "started_at": _started_at,
+                "install_dir": selfupdate.INSTALL_DIR,
+                "app_count": len(db.list_apps()), "update_log": _update_log(),
+                "message": str(exc), "message_kind": "bad",
+            },
+            status_code=400,
+        )
+
+    selfupdate.back_up()
+    selfupdate.apply(staged)
+
+    notes: list[str] = []
+    if staged.requirements_changed:
+        selfupdate.install_requirements(notes.append)
+
+    port = request.url.port or 8080
+    selfupdate.restart(port)
+    selfupdate.stop_self()
+
+    return HTMLResponse(_restarting_page(port))
+
+
+def _restarting_page(port: int) -> str:
+    """Shown while the launcher is being replaced, and reloads when it returns."""
+    return f"""<!doctype html><meta charset="utf-8">
+<title>Updating the launcher</title>
+<body style="font:15px/1.6 system-ui;margin:0;background:#f9f9f7;color:#0b0b0b">
+<div style="max-width:560px;margin:80px auto;padding:28px;background:#fcfcfb;
+     border:1px solid rgba(11,11,11,.1);border-radius:12px">
+  <h1 style="font-size:20px;margin:0 0 10px">Updating the launcher</h1>
+  <p id="status">The new version has been installed and the launcher is
+     restarting. This page will come back on its own in about 20 seconds.</p>
+  <p style="color:#52514e;font-size:13.5px">Your applications are still running -
+     they are not affected by this.</p>
+</div>
+<script>
+// Poll until the new launcher answers, then go back to the update page. If it
+// never answers the helper restores the previous version, which answers here
+// just the same.
+let tries = 0;
+async function check() {{
+  tries += 1;
+  try {{
+    const r = await fetch("/healthz", {{ cache: "no-store" }});
+    if (r.ok) {{ location.href = "/admin/update?message=Update+complete."; return; }}
+  }} catch (err) {{ /* still down, expected */ }}
+  if (tries > 60) {{
+    document.getElementById("status").textContent =
+      "The launcher has not come back after two minutes. Check the server's "
+      + "console window, or the update log at the machine.";
+    return;
+  }}
+  setTimeout(check, 2000);
+}}
+setTimeout(check, 4000);
+</script>
+</body>"""
 
 
 @app.get("/healthz")

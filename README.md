@@ -204,6 +204,34 @@ Worth knowing, because these are real:
   venv; npm is not.
 - **WebSockets are not proxied.** Ordinary HTTP and streaming responses work.
 
+## Updating the launcher from another machine
+
+Open `http://<server>:8080/admin/update` from any machine on the network and
+upload the launcher's own ZIP. There is no need to go to the server.
+
+**Your applications keep running throughout.** They are separate processes,
+detached from the launcher, so replacing and restarting the launcher does not
+touch them.
+
+What happens, in order:
+
+1. The ZIP is unpacked somewhere harmless and checked: it must contain the
+   launcher's own files, and its Python must compile. Anything that fails here
+   is rejected before a single file is replaced.
+2. The current install is copied aside.
+3. The new files are copied over it. `deploy\settings.cmd` and the Python
+   environment are **never** replaced, so this server's settings survive.
+4. Dependencies are installed if `requirements.txt` changed.
+5. The launcher exits and a helper starts the new version.
+6. The helper waits for it to answer. **If it does not, the copy from step 2 is
+   restored and started instead** - so a bad upload costs about ten seconds
+   rather than a trip to the machine.
+
+The page you upload from waits for the launcher to come back and then reloads
+itself. The last update's log is on the same page, and the new launcher's own
+startup output is kept at `<data>/updates/launcher-start.log` - which is where
+to look if an update ever does fail.
+
 ## Saved files
 
 Every deploy replaces an app's source folder, so anything written beside the
