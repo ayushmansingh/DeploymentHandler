@@ -16,27 +16,18 @@
 </div>
 
 <h2 id="deploy">Deploy an app</h2>
+
 <div class="card">
-  <form method="post" action="/upload" enctype="multipart/form-data">
-    <label for="name">App name</label>
-    <input type="text" id="name" name="name" placeholder="sales-dashboard" required>
-    <p class="muted" style="font-size:13px;margin:5px 0 0">
-      Use the same name again to update an existing app. Its link will not change.</p>
-
-    <label for="uploaded_by">Your name</label>
-    <input type="text" id="uploaded_by" name="uploaded_by" placeholder="Priya">
-
-    <label for="file">ZIP file</label>
-    <input type="file" id="file" name="file" accept=".zip,application/zip" required>
-
-    <p style="margin:18px 0 0"><button type="submit" class="primary">Deploy</button></p>
-  </form>
-</div>
-
-<details class="card">
-  <summary>Before you ask your AI assistant for the ZIP, paste this into your prompt</summary>
-  <p class="muted" style="font-size:13px">This makes the ZIP work on our server the first time.</p>
-  <pre class="log" id="prompt-block">Package this as a ZIP for our internal app server. Follow these rules exactly.
+  <div class="step-head"><span class="step">1</span>
+    <strong>Get a ZIP from your AI assistant</strong></div>
+  <p class="muted" style="font-size:13.5px;margin:6px 0 14px">
+    Paste this into Claude or Codex <em>before</em> asking for the ZIP. It is
+    what makes the result work on this server first time - the rules it sets
+    are the ones this server actually enforces.</p>
+  <p style="margin:0"><button type="button" id="copy-prompt" class="primary">Copy prompt</button></p>
+  <details style="margin-top:14px">
+    <summary>Show the text</summary>
+    <pre class="log" id="prompt-block">Package this as a ZIP for our internal app server. Follow these rules exactly.
 
 STRUCTURE
 - Two folders at the root of the ZIP: backend/ and frontend/
@@ -71,9 +62,27 @@ FRONTEND (React + Vite)
 
 NOT SUPPORTED - do not use these
 - WebSockets</pre>
-  <button onclick="navigator.clipboard.writeText(document.getElementById('prompt-block').innerText)">
-    Copy prompt</button>
-</details>
+  </details>
+</div>
+
+<div class="card">
+  <div class="step-head"><span class="step">2</span>
+    <strong>Upload the ZIP</strong></div>
+  <form method="post" action="/upload" enctype="multipart/form-data">
+    <label for="name">App name</label>
+    <input type="text" id="name" name="name" placeholder="sales-dashboard" required>
+    <p class="muted" style="font-size:13px;margin:5px 0 0">
+      Use the same name again to update an existing app. Its link will not change.</p>
+
+    <label for="uploaded_by">Your name</label>
+    <input type="text" id="uploaded_by" name="uploaded_by" placeholder="Priya">
+
+    <label for="file">ZIP file</label>
+    <input type="file" id="file" name="file" accept=".zip,application/zip" required>
+
+    <p style="margin:18px 0 0"><button type="submit" class="primary">Deploy</button></p>
+  </form>
+</div>
 
 <script>
 // Refresh the grid so a deploy in progress becomes a working link on its own.
@@ -103,5 +112,18 @@ async function refreshApps() {
   setTimeout(refreshApps, wait);
 }
 setTimeout(refreshApps, isBusy() ? BUSY_MS : IDLE_MS);
+
+document.getElementById("copy-prompt").addEventListener("click", async (ev) => {
+  // Hold the element: ev.currentTarget is only valid during dispatch, and is
+  // null by the time the clipboard promise resolves.
+  const btn = ev.currentTarget;
+  // textContent, not innerText: a collapsed <details> is not rendered, so
+  // innerText would copy an empty string.
+  await navigator.clipboard.writeText(
+    document.getElementById("prompt-block").textContent
+  );
+  btn.textContent = "Copied - paste into Claude";
+  setTimeout(() => { btn.textContent = "Copy prompt"; }, 4000);
+});
 </script>
 {% endblock %}

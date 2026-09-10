@@ -72,3 +72,17 @@ def test_pipeline_doc_matches_the_code_it_describes():
     # Both halves of the directory-name preference lists.
     for hint in detect.BACKEND_HINTS + detect.FRONTEND_HINTS:
         assert f"`{hint}/`" in doc, f"{hint}/ is searched but not documented"
+
+
+def test_prompt_step_comes_before_the_upload_form():
+    """People must meet the rules before the box that ignores them."""
+    html = INDEX.read_text()
+    assert html.index("copy-prompt") < html.index('action="/upload"')
+
+
+def test_copy_button_reads_text_not_rendered_content():
+    """A collapsed <details> is not rendered, so innerText would copy nothing."""
+    html = INDEX.read_text()
+    copy_section = html[html.index('id="copy-prompt"'):]
+    assert "textContent" in copy_section
+    assert "innerText" not in copy_section
