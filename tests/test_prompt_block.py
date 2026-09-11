@@ -34,7 +34,7 @@ def test_prompt_states_the_rules_the_launcher_actually_enforces():
     assert '"build" script' in block
     assert "node_modules" in block
     assert "app = FastAPI()" in block
-    assert "no .env file" in block
+    assert "os.environ" in block
 
 
 def test_prompt_warns_about_the_limits_of_native_mode():

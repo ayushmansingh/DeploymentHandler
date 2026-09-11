@@ -232,6 +232,33 @@ itself. The last update's log is on the same page, and the new launcher's own
 startup output is kept at `<data>/updates/launcher-start.log` - which is where
 to look if an update ever does fail.
 
+## Settings an app needs
+
+An app that needs an API key or a token reads it from the environment:
+
+```python
+KEY = os.environ.get("REDASH_API_KEY", "")
+```
+
+The values are set from the app's own page in the dashboard - name and value,
+both typed in, so each app uses whatever names its code expects. They are
+handed to the app when it starts, survive being replaced with a newer ZIP, and
+never travel inside the ZIP itself.
+
+**Values cannot be read back.** Once saved, the page shows the name, a mask,
+and when it last changed. Changing one means typing a new value over it.
+Saving or removing a setting restarts that app so the change takes effect.
+
+Settings can never override `PORT`, `APP_DATA_DIR` or `PYTHONUNBUFFERED` - the
+launcher applies its own last, so a stored value cannot break an app's port or
+point it away from its saved files.
+
+This is not a secret store, and it should not be treated as one. The values
+sit in plaintext in the launcher's database, and any app deployed here can
+read its own environment. It keeps a token from being read off the screen by
+the next person to open the page. Anything you would not put in a shared team
+folder does not belong here.
+
 ## Saved files
 
 Every deploy replaces an app's source folder, so anything written beside the

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import psutil
 
-from . import config
+from . import config, settings
 from .detect import Spec
 
 LogSink = Callable[[str], None]
@@ -242,16 +242,23 @@ def _spawn(cmd: list[str], cwd: Path, log_path: Path,
 
 def start(app_name: str, src: Path, spec: Spec, public_port: int,
           backend_port: int | None, log_dir: Path,
-          data_dir: Path | None = None) -> Processes:
+          data_dir: Path | None = None,
+          app_settings: dict[str, str] | None = None) -> Processes:
     """Launch the app's processes and return their pids."""
     processes = Processes()
     runtime_log = log_dir / "runtime.log"
 
     if spec.backend and backend_port:
-        env = {**os.environ, "PORT": str(backend_port), "PYTHONUNBUFFERED": "1"}
+        reserved = {"PORT": str(backend_port), "PYTHONUNBUFFERED": "1"}
         if data_dir is not None:
             # Where the app should write anything it wants to keep.
-            env["APP_DATA_DIR"] = str(data_dir)
+            reserved["APP_DATA_DIR"] = str(data_dir)
+        # The app's own settings, then ours - so a stored setting can never
+        # displace the port or point the app away from its saved files.
+        env = {
+            **os.environ,
+            **settings.environment(app_settings or {}, reserved),
+        }
         processes.backend_pid = _spawn(
             backend_command(spec, src, backend_port),
             cwd=src / spec.backend.path,

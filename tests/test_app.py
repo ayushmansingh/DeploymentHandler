@@ -270,3 +270,110 @@ def test_app_page_does_not_reload_itself(client):
     upload(client, name="sales-dashboard")
     page = client.get("/app/sales-dashboard").text
     assert "location.reload" not in page
+
+
+def test_saving_a_setting_from_the_page(client):
+    from launcher import db as database
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+
+    response = client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "REDASH_API_KEY", "value": "secret123", "updated_by": "Priya"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert database.settings_env(int(row["id"])) == {"REDASH_API_KEY": "secret123"}
+
+
+def test_the_page_shows_the_name_masked_and_never_the_value(client):
+    """A value must not be recoverable by opening the page."""
+    from launcher import db as database, settings as s
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_setting(int(row["id"]), "REDASH_API_KEY", "secret123", "Priya")
+
+    page = client.get("/app/sales-dashboard").text
+
+    assert "REDASH_API_KEY" in page
+    assert s.MASK in page
+    assert "secret123" not in page, "the value leaked into the page"
+
+
+def test_a_bad_setting_name_is_explained(client):
+    upload(client, name="sales-dashboard")
+    response = client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "2FA TOKEN", "value": "x"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "setting_error" in response.headers["location"]
+    page = client.get(response.headers["location"]).text
+    assert "not a usable name" in page
+
+
+def test_reserved_names_are_refused_through_the_page(client):
+    from launcher import db as database
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+
+    response = client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "APP_DATA_DIR", "value": "/somewhere/else"},
+        follow_redirects=False,
+    )
+
+    assert "setting_error" in response.headers["location"]
+    assert database.settings_env(int(row["id"])) == {}
+
+
+def test_removing_a_setting_from_the_page(client):
+    from launcher import db as database
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_setting(int(row["id"]), "TOKEN", "secret")
+
+    response = client.post(
+        "/app/sales-dashboard/settings/TOKEN/delete", follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert database.settings_env(int(row["id"])) == {}
+
+
+def test_changing_a_setting_restarts_a_running_app(client, monkeypatch):
+    """Otherwise the app carries on with the old value and looks broken."""
+    from launcher import db as database, supervisor
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    restarted = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+
+    client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "TOKEN", "value": "secret"},
+        follow_redirects=False,
+    )
+    assert restarted == ["sales-dashboard"]
+
+
+def test_changing_a_setting_does_not_start_a_stopped_app(client, monkeypatch):
+    from launcher import db as database, supervisor
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.update_app(int(row["id"]), status="stopped")
+
+    monkeypatch.setattr(
+        supervisor, "launch",
+        lambda r, reason="": pytest.fail("a stopped app must stay stopped"),
+    )
+    client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "TOKEN", "value": "secret"},
+        follow_redirects=False,
+    )

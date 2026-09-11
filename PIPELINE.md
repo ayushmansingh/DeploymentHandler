@@ -114,8 +114,9 @@ Both steps time out after 15 minutes. Two apps build at once at most.
   `<backend folder>/data/app.db`.
 - It is bound to **127.0.0.1 on a private port**, not to the network. The port
   is assigned by the server; whatever port the code asks for is rewritten.
-- Environment: `APP_DATA_DIR`, `PORT`, `PYTHONUNBUFFERED=1`, plus the server's
-  own environment.
+- Environment: `APP_DATA_DIR`, `PORT`, `PYTHONUNBUFFERED=1`, the server's own
+  environment, and **any settings configured for this app** on its page. Those
+  are applied first, so they can never displace `PORT` or `APP_DATA_DIR`.
 - A front server takes the app's public port and serves:
   - `/` → the built frontend files
   - `/api/...` → proxied to the backend
@@ -166,7 +167,8 @@ failed and the app's own output is added to the log.
 2. `app = FastAPI()` at module level in `main.py`.
 3. Everything saved goes under `APP_DATA_DIR` (or `data/`, which is the same
    place). Nothing else survives an update.
-4. The app must boot with no `.env` file and no required API key.
+4. Settings come from the environment, set on the app's page. The app must
+   boot without them - it can be deployed first and configured afterwards.
 5. Do not pin package versions that do not exist. Do not ship `node_modules`.
 6. Do not choose a port; the server assigns one.
 7. WebSockets are not proxied.

@@ -68,7 +68,7 @@ def launch(app_row, reason: str = "") -> bool:
 
     processes = native.start(
         name, src, spec, public_port, backend_port, config.LOG_DIR / name,
-        appdata.dir_for(name),
+        appdata.dir_for(name), db.settings_env(int(app_row["id"])),
     )
     db.update_app(
         int(app_row["id"]),

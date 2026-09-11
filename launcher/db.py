@@ -57,6 +57,19 @@ CREATE TABLE IF NOT EXISTS ports (
     allocated_at REAL    NOT NULL
 );
 
+-- Per-app configuration, injected into the app's environment when it starts.
+-- Values are write-only from the dashboard: they are set and replaced there,
+-- never read back out, so a key someone pasted in cannot be retrieved by the
+-- next person to open the page.
+CREATE TABLE IF NOT EXISTS app_settings (
+    app_id     INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    key        TEXT    NOT NULL,
+    value      TEXT    NOT NULL,
+    updated_at REAL    NOT NULL,
+    updated_by TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (app_id, key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_deploys_app ON deploys(app_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ports_app_role ON ports(app_id, role);
 """
@@ -151,6 +164,52 @@ def update_app(app_id: int, db_path: Path | None = None, **fields: Any) -> None:
 def delete_app(app_id: int, db_path: Path | None = None) -> None:
     with connect(db_path) as conn:
         conn.execute("DELETE FROM apps WHERE id = ?", (app_id,))
+
+
+def set_setting(
+    app_id: int, key: str, value: str, updated_by: str = "",
+    db_path: Path | None = None,
+) -> None:
+    """Store or replace one setting. Replacing is the only way to change it."""
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO app_settings (app_id, key, value, updated_at, updated_by)"
+            " VALUES (?,?,?,?,?)"
+            " ON CONFLICT(app_id, key) DO UPDATE SET"
+            " value = excluded.value, updated_at = excluded.updated_at,"
+            " updated_by = excluded.updated_by",
+            (app_id, key, value, time.time(), updated_by),
+        )
+
+
+def list_setting_keys(app_id: int, db_path: Path | None = None) -> list[sqlite3.Row]:
+    """Key names and when they changed - deliberately never the values.
+
+    The dashboard renders this, so it must not be able to leak a secret even
+    by accident.
+    """
+    with connect(db_path) as conn:
+        return conn.execute(
+            "SELECT key, updated_at, updated_by FROM app_settings"
+            " WHERE app_id = ? ORDER BY key",
+            (app_id,),
+        ).fetchall()
+
+
+def settings_env(app_id: int, db_path: Path | None = None) -> dict[str, str]:
+    """The settings as environment variables, for launching the app."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM app_settings WHERE app_id = ?", (app_id,)
+        ).fetchall()
+    return {row["key"]: row["value"] for row in rows}
+
+
+def delete_setting(app_id: int, key: str, db_path: Path | None = None) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM app_settings WHERE app_id = ? AND key = ?", (app_id, key)
+        )
 
 
 def create_deploy(

@@ -213,6 +213,7 @@ def run_deploy(deploy_id: int) -> None:
             processes = native.start(
                 name, src, spec, host_port, backend_port,
                 config.LOG_DIR / name, data_dir,
+                db.settings_env(int(app["id"])),
             )
             swapped = True
             log.line(f"[launcher] Started the app (process {processes.front_pid}).")

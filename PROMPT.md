@@ -19,8 +19,13 @@ BACKEND (Python)
 - backend/requirements.txt, pinned to versions that really exist on PyPI
 - EVERY backend route must start with /api
   e.g. @app.get("/api/items") - a route at /items will not be reachable
-- The app must start with no .env file present; use safe defaults for every
-  setting, and never require an API key to boot
+- Read every setting - API keys, tokens, URLs - from the environment:
+      KEY = os.environ.get("REDASH_API_KEY", "")
+  They are set on the server through the app's Settings panel. Do NOT read a
+  .env file from the project folder; nobody is at the server to create one
+- The app must still START without those settings, showing an empty or
+  "not configured" state rather than exiting, so it can be deployed first and
+  configured afterwards
 - The server starts the app for you. A `if __name__ == "__main__"` block is
   harmless but is not used, and the port is chosen by the server
 
@@ -55,8 +60,11 @@ A route at `/items` is unreachable no matter how correct the code is.
 is running on, not the server. This is the single most common failure, so the
 launcher rejects it before building rather than after.
 
-**No required `.env`.** Nobody is at a terminal to create one, and a backend
-that exits on a missing key looks identical to a crash.
+**Settings from the environment, and never required to boot.** Nobody is at
+a terminal on the server to create a `.env`, so keys are set through the app's
+Settings panel and arrive as environment variables. A backend that exits on a
+missing key looks identical to a crash, and cannot be deployed at all before
+someone has a chance to configure it.
 
 **Module-level `app`.** That is what the launcher looks for to work out how to
 start the backend.

@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -18,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 
 from . import __version__
 from . import appdata, config, db, deployer, errors, files, metrics, naming, native
-from . import selfupdate
+from . import selfupdate, settings as app_settings
 from . import ports
 from . import runtime
 from . import supervisor
@@ -303,7 +304,9 @@ async def replace_app(
 
 
 @app.get("/app/{name}", response_class=HTMLResponse)
-def app_detail(request: Request, name: str, deploy: int | None = None):
+def app_detail(request: Request, name: str, deploy: int | None = None,
+               setting_saved: str = "", setting_removed: str = "",
+               setting_error: str = ""):
     row = _require_app(name)
     deploys = db.list_deploys(int(row["id"]), limit=10)
     current = db.get_deploy(deploy) if deploy else (deploys[0] if deploys else None)
@@ -319,7 +322,12 @@ def app_detail(request: Request, name: str, deploy: int | None = None):
             "data_size": appdata.human_size(appdata.size_bytes(name)),
             "data_dir": appdata.dir_for(name),
             "usage": _app_summary(row)["usage"],
+            "settings": db.list_setting_keys(int(row["id"])),
+            "mask": app_settings.MASK,
             "memory_strikes": config.MEMORY_STRIKES_BEFORE_RESTART,
+            "setting_saved": setting_saved,
+            "setting_removed": setting_removed,
+            "setting_error": setting_error,
         },
     )
 
@@ -389,6 +397,53 @@ def repair_prompt(name: str, deploy: int | None = None):
     if target["error_summary"]:
         diagnosis.summary = target["error_summary"]
     return PlainTextResponse(errors.repair_prompt(name, diagnosis, log_text))
+
+
+@app.post("/app/{name}/settings")
+def save_setting(name: str, key: str = Form(...), value: str = Form(...),
+                 updated_by: str = Form("")):
+    """Store or replace one setting, then restart the app so it takes effect.
+
+    Without the restart someone would set a key, see it listed, and watch the
+    app carry on with the old value - which looks like the setting was ignored.
+    """
+    row = _require_app(name)
+    try:
+        clean_key = app_settings.clean_key(key)
+        clean_value = app_settings.clean_value(value)
+    except app_settings.InvalidSetting as exc:
+        return RedirectResponse(
+            f"/app/{name}?setting_error={quote(str(exc))}", status_code=303
+        )
+
+    db.set_setting(int(row["id"]), clean_key, clean_value, updated_by.strip())
+    _restart_for_settings(row)
+    return RedirectResponse(
+        f"/app/{name}?setting_saved={quote(clean_key)}", status_code=303
+    )
+
+
+@app.post("/app/{name}/settings/{key}/delete")
+def remove_setting(name: str, key: str):
+    row = _require_app(name)
+    db.delete_setting(int(row["id"]), key)
+    _restart_for_settings(row)
+    return RedirectResponse(
+        f"/app/{name}?setting_removed={quote(key)}", status_code=303
+    )
+
+
+def _restart_for_settings(row) -> None:
+    """Restart a running app so a changed setting reaches it."""
+    if row["status"] != "live":
+        return
+    if config.RUNTIME == "native":
+        supervisor.launch(row, reason="Restarted to pick up a changed setting.")
+    else:
+        try:
+            runtime._run(["docker", "restart", row["container_id"] or ""])
+        except runtime.DockerError:
+            pass
 
 
 @app.post("/app/{name}/stop")
