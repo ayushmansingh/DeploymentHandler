@@ -60,8 +60,10 @@
 
   header {
     background: var(--surface); border-bottom: 1px solid var(--line);
-    padding: 14px 24px; position: sticky; top: 0; z-index: 5;
+    padding: 0 24px; position: sticky; top: 0; z-index: 5;
   }
+  header .bar { display: flex; align-items: center; max-width: 1020px;
+                margin: 0 auto; }
   header a.brand {
     color: inherit; text-decoration: none; font-weight: 640;
     font-size: 15px; letter-spacing: -.01em;
@@ -157,6 +159,43 @@
 
   .page-head { display: flex; align-items: flex-start; justify-content: space-between;
                gap: 16px; margin-bottom: 2px; }
+
+  /* Tabs. Real links, so the back button and bookmarks behave. */
+  .tabs { display: flex; gap: 2px; margin-left: 26px; }
+  .tab { position: relative; padding: 16px 14px; margin-bottom: -15px;
+         font-size: 13.5px; font-weight: 550; color: var(--muted);
+         text-decoration: none; border-bottom: 2px solid transparent;
+         transition: color .14s ease, border-color .14s ease; white-space: nowrap; }
+  .tab:hover { color: var(--ink); }
+  .tab.on { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab .count { display: inline-block; margin-left: 7px; padding: 1px 7px;
+         border-radius: 20px; background: var(--grid); color: var(--ink-2);
+         font-size: 11.5px; font-weight: 640; }
+  .tab.on .count { background: color-mix(in srgb, var(--accent) 18%, transparent);
+         color: var(--accent-hi); }
+
+  /* Drop a ZIP here - the product's own gesture, made literal. */
+  .dropzone { position: relative; border: 1.5px dashed var(--grid);
+         border-radius: var(--r); padding: 32px 20px; text-align: center;
+         background: var(--page); cursor: pointer;
+         transition: border-color .14s ease, background .14s ease; }
+  .dropzone:hover { border-color: var(--accent); }
+  .dropzone.over { border-color: var(--accent); border-style: solid;
+         background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+  .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0;
+         cursor: pointer; width: 100%; height: 100%; }
+  .dropzone .icon { font-size: 24px; line-height: 1; }
+  .dropzone .lead { font-weight: 600; margin-top: 10px; }
+  .dropzone .hint { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .dropzone.chosen { border-style: solid; border-color: var(--good);
+         background: color-mix(in srgb, var(--good) 7%, var(--surface)); }
+  .dropzone .chosen-name { font-weight: 600; word-break: break-all; }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(7px); } }
+  .stats > *, .grid > * { animation: rise .26s ease both; }
+  .grid > *:nth-child(2) { animation-delay: .04s; }
+  .grid > *:nth-child(3) { animation-delay: .08s; }
+  .grid > *:nth-child(n+4) { animation-delay: .12s; }
   .step-head { display: flex; align-items: center; gap: 10px; }
   .step { display: inline-flex; align-items: center; justify-content: center;
           width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
@@ -227,14 +266,28 @@
   .app-actions .manage:hover { color: var(--ink); border-color: var(--muted); }
 
   @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; }
+    *, .stats > *, .grid > * { transition: none !important; animation: none !important; }
+  }
+
+  @media (max-width: 620px) {
+    header { padding: 12px 16px; }
+    .tabs { margin-left: 12px; gap: 0; }
+    .tab { padding: 16px 9px; }
+    main { padding: 20px 16px 48px; }
   }
 </style>
 </head>
 <body>
-<header style="display:flex;align-items:center;justify-content:space-between;gap:16px">
-  <a class="brand" href="/"><span class="dot"></span>App Launcher</a>
-  <a href="/admin/update" style="font-size:12.5px;color:var(--muted);text-decoration:none">Server</a>
+<header>
+  <div class="bar">
+    <a class="brand" href="/"><span class="dot"></span>App Launcher</a>
+    <nav class="tabs">
+      <a class="tab {{ 'on' if active_tab == 'dashboard' }}" href="/">Dashboard{%
+        if nav_app_count %}<span class="count">{{ nav_app_count }}</span>{% endif %}</a>
+      <a class="tab {{ 'on' if active_tab == 'deploy' }}" href="/deploy">Deploy</a>
+      <a class="tab {{ 'on' if active_tab == 'server' }}" href="/admin/update">Server</a>
+    </nav>
+  </div>
 </header>
 <main>{% block body %}{% endblock %}</main>
 <script>

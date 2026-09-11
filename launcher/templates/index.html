@@ -6,7 +6,7 @@
     <h1>Overview</h1>
     <p class="sub">Everything running on this server.</p>
   </div>
-  <a class="btn primary" href="#deploy">Deploy an app</a>
+  <a class="btn primary" href="/deploy">Deploy an app</a>
 </div>
 
 {% if not runtime_ready %}
@@ -16,86 +16,6 @@
 
 <div id="apps">
   {% include "_apps.html" %}
-</div>
-
-<h2 id="deploy">Deploy an app</h2>
-
-<div class="card">
-  <div class="step-head"><span class="step">1</span>
-    <strong>Get a ZIP from your AI assistant</strong></div>
-  <p class="muted" style="font-size:13.5px;margin:6px 0 14px">
-    Paste this into Claude or Codex <em>before</em> asking for the ZIP. It is
-    what makes the result work on this server first time - the rules it sets
-    are the ones this server actually enforces.</p>
-  <p style="margin:0"><button type="button" id="copy-prompt" class="primary">Copy prompt</button></p>
-  <details style="margin-top:14px">
-    <summary>Show the text</summary>
-    <pre class="log" id="prompt-block">Package this as a ZIP for our internal app server. Follow these rules exactly.
-
-STRUCTURE
-- Two folders at the root of the ZIP: backend/ and frontend/
-- Do NOT include node_modules, .venv, or build output in the ZIP
-
-BACKEND (Python)
-- backend/main.py must create the app at module level:  app = FastAPI()
-- backend/requirements.txt, pinned to versions that really exist on PyPI
-- EVERY backend route must start with /api
-  e.g. @app.get("/api/items") - a route at /items will not be reachable
-- Read every setting - API keys, tokens, URLs - from the environment:
-      KEY = os.environ.get("REDASH_API_KEY", "")
-  Do NOT read a .env file from the project folder; nobody is at the server to
-  create one. See SETTINGS below for how they get there
-- The server starts the app for you. A `if __name__ == "__main__"` block is
-  harmless but is not used, and the port is chosen by the server
-
-SETTINGS THE APP NEEDS
-- If the app needs an API key, token or URL, list it in a launcher.yaml file
-  at the root of the ZIP - names only, NEVER values:
-      settings:
-        - name: REDASH_API_KEY
-          description: Personal API key from Redash, under Profile
-- Do NOT put the actual key anywhere in the ZIP. A person types it into the
-  server after uploading, and the app starts once they have
-
-SAVING FILES
-- To save anything - a CSV pulled from Redash, a SQLite database, a cache -
-  write it inside the folder given by the APP_DATA_DIR environment variable:
-      DATA = Path(os.environ.get("APP_DATA_DIR", "data"))
-      DATA.mkdir(parents=True, exist_ok=True)
-      df.to_csv(DATA / "redash_export.csv", index=False)
-- Files there survive when the app is replaced with a newer ZIP
-- The folder `data/` next to main.py points at the same place, so a plain
-  "data/report.csv" also works
-- Anything written anywhere ELSE is erased on the next upload
-
-FRONTEND (React + Vite)
-- frontend/package.json must have a "build" script
-- The build must output to frontend/dist
-- EVERY API call must use a relative path starting with /api
-  e.g. fetch("/api/items")  -  NEVER http://localhost:8000 or any absolute URL
-
-NOT SUPPORTED - do not use these
-- WebSockets</pre>
-  </details>
-</div>
-
-<div class="card">
-  <div class="step-head"><span class="step">2</span>
-    <strong>Upload the ZIP</strong></div>
-  <form method="post" action="/upload" enctype="multipart/form-data">
-    <label for="name">App name</label>
-    <input type="text" id="name" name="name" placeholder="sales-dashboard" required>
-    <p class="muted" style="font-size:13px;margin:5px 0 0">
-      Use the same name again to update an existing app. Its link will not change.</p>
-
-    <label for="uploaded_by">Your name</label>
-    <input type="text" id="uploaded_by" name="uploaded_by" placeholder="Priya">
-
-    <label for="file">ZIP file</label>
-    <input type="file" id="file" name="file" accept=".zip,application/zip" required>
-
-    <p style="margin:18px 0 0"><button type="submit" class="primary">Deploy</button></p>
-  </form>
 </div>
 
 <script>
@@ -126,17 +46,5 @@ async function refreshApps() {
   setTimeout(refreshApps, wait);
 }
 setTimeout(refreshApps, isBusy() ? BUSY_MS : IDLE_MS);
-
-document.getElementById("copy-prompt").addEventListener("click", async (ev) => {
-  // Hold the element: ev.currentTarget is only valid during dispatch, and is
-  // null by the time the copy resolves.
-  const btn = ev.currentTarget;
-  // textContent, not innerText: a collapsed <details> is not rendered, so
-  // innerText would copy an empty string.
-  const text = document.getElementById("prompt-block").textContent;
-  const copied = await copyWithFeedback(btn, text, "Copied - paste into Claude");
-  // If the clipboard is unavailable, open the text so it can be selected.
-  if (!copied) document.querySelector("#deploy ~ .card details").open = true;
-});
 </script>
 {% endblock %}

@@ -7,7 +7,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PROMPT_MD = REPO / "PROMPT.md"
-INDEX = REPO / "launcher" / "templates" / "index.html"
+# The prompt and the upload form live on the Deploy tab.
+DEPLOY = REPO / "launcher" / "templates" / "deploy.html"
 
 
 def canonical_block() -> str:
@@ -15,14 +16,14 @@ def canonical_block() -> str:
 
 
 def dashboard_block() -> str:
-    html = INDEX.read_text()
+    html = DEPLOY.read_text()
     start = html.index('<pre class="log" id="prompt-block">') + len(
         '<pre class="log" id="prompt-block">'
     )
     return html[start : html.index("</pre>", start)]
 
 
-def test_dashboard_shows_the_canonical_prompt():
+def test_the_deploy_page_shows_the_canonical_prompt():
     assert dashboard_block() == canonical_block()
 
 
@@ -76,13 +77,13 @@ def test_pipeline_doc_matches_the_code_it_describes():
 
 def test_prompt_step_comes_before_the_upload_form():
     """People must meet the rules before the box that ignores them."""
-    html = INDEX.read_text()
+    html = DEPLOY.read_text()
     assert html.index("copy-prompt") < html.index('action="/upload"')
 
 
 def test_copy_button_reads_text_not_rendered_content():
     """A collapsed <details> is not rendered, so innerText would copy nothing."""
-    html = INDEX.read_text()
+    html = DEPLOY.read_text()
     copy_section = html[html.index('id="copy-prompt"'):]
     # Comments explain why innerText is wrong, so judge the code alone.
     code = "\n".join(

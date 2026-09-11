@@ -531,3 +531,36 @@ def test_a_new_version_waiting_on_a_setting_leaves_the_old_one_serving(client, m
 
     assert launched and "new version" in launched[0]
     assert database.get_deploy(deploy_id)["status"] == "live"
+
+
+def test_each_tab_marks_itself_current(client):
+    """Otherwise every tab looks inactive and nobody knows where they are."""
+    assert 'class="tab on" href="/"' in client.get("/").text
+    assert 'class="tab on" href="/deploy"' in client.get("/deploy").text
+    assert 'class="tab on" href="/admin/update"' in client.get("/admin/update").text
+
+
+def test_the_deploy_tab_carries_the_upload_form(client):
+    page = client.get("/deploy").text
+    assert 'action="/upload"' in page
+    assert "copy-prompt" in page
+    assert "dropzone" in page
+
+
+def test_the_dashboard_no_longer_carries_the_upload_form(client):
+    """Splitting them is the point; a stray second form would be confusing."""
+    assert 'action="/upload"' not in client.get("/").text
+
+
+def test_the_dashboard_tab_counts_the_apps(client):
+    assert '<span class="count">' not in client.get("/").text
+
+    upload(client, name="sales-dashboard")
+    assert '<span class="count">1</span>' in client.get("/").text
+
+
+def test_deploy_is_not_usable_as_an_app_name(client):
+    """It is a route now, so an app of that name would shadow the tab."""
+    response = upload(client, name="deploy")
+    assert response.status_code == 400
+    assert "reserved" in response.text

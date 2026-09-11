@@ -35,7 +35,7 @@ def test_the_shared_helper_has_a_fallback_that_works_without_it():
     )
 
 
-@pytest.mark.parametrize("template", ["index.html", "detail.html"])
+@pytest.mark.parametrize("template", ["deploy.html", "detail.html"])
 def test_pages_never_touch_the_clipboard_api_directly(template):
     """Pages must go through the helper, which handles the insecure case."""
     code = strip_comments((TEMPLATES / template).read_text())
@@ -45,7 +45,7 @@ def test_pages_never_touch_the_clipboard_api_directly(template):
     assert "copyWithFeedback" in code
 
 
-@pytest.mark.parametrize("template", ["index.html", "detail.html"])
+@pytest.mark.parametrize("template", ["deploy.html", "detail.html"])
 def test_copy_buttons_report_failure_rather_than_going_quiet(template):
     code = (TEMPLATES / template).read_text()
     assert "copyWithFeedback" in code

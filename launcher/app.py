@@ -171,12 +171,32 @@ def _grid_context() -> dict:
     }
 
 
+def _nav(active: str) -> dict:
+    """Shared chrome: which tab is current, and the count beside Dashboard."""
+    return {"active_tab": active, "nav_app_count": len(db.list_apps())}
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     ready, problem = runtime_ready()
     return templates.TemplateResponse(
         request, "index.html",
-        {**_grid_context(), "runtime_ready": ready, "runtime_problem": problem},
+        {
+            **_grid_context(), **_nav("dashboard"),
+            "runtime_ready": ready, "runtime_problem": problem,
+        },
+    )
+
+
+@app.get("/deploy", response_class=HTMLResponse)
+def deploy_page(request: Request):
+    ready, problem = runtime_ready()
+    return templates.TemplateResponse(
+        request, "deploy.html",
+        {
+            **_nav("deploy"), "app_count": len(db.list_apps()),
+            "runtime_ready": ready, "runtime_problem": problem,
+        },
     )
 
 
@@ -317,6 +337,7 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
     return templates.TemplateResponse(
         request, "detail.html",
         {
+            **_nav("dashboard"),
             "app": row,
             "url": _app_url(row),
             "deploys": deploys,
@@ -607,6 +628,7 @@ def admin_update(request: Request, message: str = "", kind: str = "ok"):
     return templates.TemplateResponse(
         request, "admin.html",
         {
+            **_nav("server"),
             "version": __version__,
             "started_at": _started_at,
             "install_dir": selfupdate.INSTALL_DIR,
@@ -653,6 +675,7 @@ async def apply_update(request: Request, file: UploadFile = None):  # type: igno
         return templates.TemplateResponse(
             request, "admin.html",
             {
+                **_nav("server"),
                 "version": __version__, "started_at": _started_at,
                 "install_dir": selfupdate.INSTALL_DIR,
                 "app_count": len(db.list_apps()), "update_log": _update_log(),
@@ -741,5 +764,6 @@ def _notice_page(message: str) -> HTMLResponse:
 
 def _error_page(request: Request, message: str) -> HTMLResponse:
     return templates.TemplateResponse(
-        request, "error.html", {"message": message}, status_code=400
+        request, "error.html", {**_nav("deploy"), "message": message},
+        status_code=400,
     )

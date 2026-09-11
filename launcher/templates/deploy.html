@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Deploy an app - App Launcher{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div>
+    <h1>Deploy an app</h1>
+    <p class="sub">Two steps. Get a ZIP from your AI assistant, then upload it.</p>
+  </div>
+  {% if app_count %}<a class="btn" href="/">All applications</a>{% endif %}
+</div>
+
+{% if not runtime_ready %}
+<div class="banner bad"><strong>This server is not ready to build apps.</strong>
+{{ runtime_problem }} Contact the server administrator.</div>
+{% endif %}
+
+<div class="card">
+  <div class="step-head"><span class="step">1</span>
+    <strong>Get a ZIP from your AI assistant</strong></div>
+  <p class="muted" style="font-size:13.5px;margin:6px 0 14px">
+    Paste this into Claude or Codex <em>before</em> asking for the ZIP. It is
+    what makes the result work on this server first time - the rules it sets
+    are the ones this server actually enforces.</p>
+  <p style="margin:0"><button type="button" id="copy-prompt" class="primary">Copy prompt</button></p>
+  <details style="margin-top:14px">
+    <summary>Show the text</summary>
+    <pre class="log" id="prompt-block">Package this as a ZIP for our internal app server. Follow these rules exactly.
+
+STRUCTURE
+- Two folders at the root of the ZIP: backend/ and frontend/
+- Do NOT include node_modules, .venv, or build output in the ZIP
+
+BACKEND (Python)
+- backend/main.py must create the app at module level:  app = FastAPI()
+- backend/requirements.txt, pinned to versions that really exist on PyPI
+- EVERY backend route must start with /api
+  e.g. @app.get("/api/items") - a route at /items will not be reachable
+- Read every setting - API keys, tokens, URLs - from the environment:
+      KEY = os.environ.get("REDASH_API_KEY", "")
+  Do NOT read a .env file from the project folder; nobody is at the server to
+  create one. See SETTINGS below for how they get there
+- The server starts the app for you. A `if __name__ == "__main__"` block is
+  harmless but is not used, and the port is chosen by the server
+
+SETTINGS THE APP NEEDS
+- If the app needs an API key, token or URL, list it in a launcher.yaml file
+  at the root of the ZIP - names only, NEVER values:
+      settings:
+        - name: REDASH_API_KEY
+          description: Personal API key from Redash, under Profile
+- Do NOT put the actual key anywhere in the ZIP. A person types it into the
+  server after uploading, and the app starts once they have
+
+SAVING FILES
+- To save anything - a CSV pulled from Redash, a SQLite database, a cache -
+  write it inside the folder given by the APP_DATA_DIR environment variable:
+      DATA = Path(os.environ.get("APP_DATA_DIR", "data"))
+      DATA.mkdir(parents=True, exist_ok=True)
+      df.to_csv(DATA / "redash_export.csv", index=False)
+- Files there survive when the app is replaced with a newer ZIP
+- The folder `data/` next to main.py points at the same place, so a plain
+  "data/report.csv" also works
+- Anything written anywhere ELSE is erased on the next upload
+
+FRONTEND (React + Vite)
+- frontend/package.json must have a "build" script
+- The build must output to frontend/dist
+- EVERY API call must use a relative path starting with /api
+  e.g. fetch("/api/items")  -  NEVER http://localhost:8000 or any absolute URL
+
+NOT SUPPORTED - do not use these
+- WebSockets</pre>
+  </details>
+</div>
+
+<div class="card">
+  <div class="step-head"><span class="step">2</span>
+    <strong>Upload the ZIP</strong></div>
+  <form method="post" action="/upload" enctype="multipart/form-data" id="deploy-form">
+    <label for="file">ZIP file</label>
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="file" name="file" accept=".zip,application/zip" required>
+      <div class="icon">&#8615;</div>
+      <div class="lead" id="drop-lead">Drop your ZIP here</div>
+      <div class="hint" id="drop-hint">or click to choose it from your Downloads folder</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label for="name">App name</label>
+        <input type="text" id="name" name="name" placeholder="sales-dashboard" required>
+        <p class="muted" style="font-size:12.5px;margin:5px 0 0">
+          Use the same name again to update an app. Its link will not change.</p>
+      </div>
+      <div>
+        <label for="uploaded_by">Your name</label>
+        <input type="text" id="uploaded_by" name="uploaded_by" placeholder="Priya">
+      </div>
+    </div>
+
+    <p style="margin:20px 0 0"><button type="submit" class="primary">Deploy</button></p>
+  </form>
+</div>
+
+<script>
+// The dropzone is the file input, made visible. Dropping a file assigns it to
+// the input, so the plain form submit still does the work and the page keeps
+// working with JavaScript disabled.
+const zone = document.getElementById("dropzone");
+const input = document.getElementById("file");
+const lead = document.getElementById("drop-lead");
+const hint = document.getElementById("drop-hint");
+const nameField = document.getElementById("name");
+
+function readableSize(bytes) {
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+}
+
+function showChosen(file) {
+  zone.classList.add("chosen");
+  zone.classList.remove("over");
+  lead.innerHTML = '<span class="chosen-name"></span>';
+  lead.firstChild.textContent = file.name;
+  hint.textContent = readableSize(file.size) + " - click to choose a different file";
+
+  // Suggest a name from the filename, so the common case is one less thing to
+  // type. Only when the field is still empty; never overwrite a choice.
+  if (!nameField.value) {
+    nameField.value = file.name
+      .replace(/\.zip$/i, "")
+      .replace(/[^A-Za-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase()
+      .slice(0, 40);
+  }
+}
+
+input.addEventListener("change", () => {
+  if (input.files.length) showChosen(input.files[0]);
+});
+
+["dragenter", "dragover"].forEach(event =>
+  zone.addEventListener(event, ev => {
+    ev.preventDefault();
+    zone.classList.add("over");
+  })
+);
+["dragleave", "drop"].forEach(event =>
+  zone.addEventListener(event, ev => {
+    ev.preventDefault();
+    if (event === "dragleave" && zone.contains(ev.relatedTarget)) return;
+    zone.classList.remove("over");
+  })
+);
+
+zone.addEventListener("drop", ev => {
+  const file = ev.dataTransfer.files[0];
+  if (!file) return;
+  // Assigning through DataTransfer is what makes the dropped file part of the
+  // form, rather than something JavaScript has to upload separately.
+  const carrier = new DataTransfer();
+  carrier.items.add(file);
+  input.files = carrier.files;
+  showChosen(file);
+});
+
+document.getElementById("deploy-form").addEventListener("submit", ev => {
+  const button = ev.currentTarget.querySelector('button[type=submit]');
+  button.disabled = true;
+  button.textContent = "Uploading...";
+});
+
+document.getElementById("copy-prompt").addEventListener("click", async (ev) => {
+  // Hold the element: ev.currentTarget is only valid during dispatch, and is
+  // null by the time the copy resolves.
+  const btn = ev.currentTarget;
+  // textContent, not innerText: a collapsed <details> is not rendered, so
+  // innerText would copy an empty string.
+  const text = document.getElementById("prompt-block").textContent;
+  const copied = await copyWithFeedback(btn, text, "Copied - paste into Claude");
+  if (!copied) document.querySelector("#deploy-form") && (document.querySelector("details").open = true);
+});
+</script>
+{% endblock %}

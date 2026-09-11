@@ -12,7 +12,10 @@ MAX_LENGTH = 40
 _VALID = re.compile(r"^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
 
 # Names that would collide with our own routes or confuse the dashboard.
-RESERVED = {"api", "static", "app", "apps", "upload", "healthz", "admin", "launcher"}
+RESERVED = {
+    "api", "static", "app", "apps", "upload", "healthz", "admin", "launcher",
+    "deploy", "partials",
+}
 
 
 class InvalidName(ValueError):

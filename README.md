@@ -10,17 +10,21 @@ no administrator rights.
 ## What your team does
 
 1. Open `http://<server>:8080/` on the LAN.
-2. Type a name, choose the ZIP from their Downloads folder, click **Deploy**.
-3. Watch the build log scroll.
+2. Go to the **Deploy** tab and drag the ZIP onto the page - or click to pick
+   it out of Downloads. The app name is filled in from the filename.
+3. Click **Deploy** and wait a minute or two.
 4. Get a link like `http://192.168.1.50:24817`.
 
-The front page is the directory of everything running on the server. It opens
+The interface is three tabs. **Dashboard** is the directory of everything
+running on the server. It opens
 with the machine's own numbers - memory, CPU and disk, each against its limit -
 then one card per app, running ones first, showing its address, who deployed
 it, and its current CPU, memory and disk use. **Clicking a card opens that application**;
 the Manage button beside it goes to the app's own page for logs, replacing,
 rollback and stop or start. The grid refreshes itself, so an app that is
 mid-build turns into a working link without anyone reloading the page.
+**Deploy** is the two-step upload, and **Server** is where the launcher itself
+is updated.
 
 Re-uploading under the same name updates the app and **keeps the same link**.
 Every upload is retained, so any previous version can be restored with one
