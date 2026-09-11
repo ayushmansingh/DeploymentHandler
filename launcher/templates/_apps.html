@@ -6,7 +6,7 @@
 {# Stat tiles, not charts: each of these is a single value against a limit. #}
 <div class="stats">
   <div class="stat">
-    <div class="label">Applications</div>
+    <div class="top"><div class="label">Applications</div></div>
     <div class="value">{{ live_count }} <small>of {{ apps | length }} running</small></div>
     <div class="note">
       {% if apps | length == 0 %}Nothing deployed yet
@@ -16,7 +16,17 @@
   </div>
 
   <div class="stat">
-    <div class="label">Server memory</div>
+    <div class="top">
+      <div class="label">Server memory</div>
+      {% if host.memory_spark %}
+      <svg class="spark" viewBox="0 0 {{ host.memory_spark.width }} {{ host.memory_spark.height }}"
+           preserveAspectRatio="none" aria-hidden="true">
+        <path class="area" d="{{ host.memory_spark.area }}"/>
+        <path class="line" d="{{ host.memory_spark.line }}"/>
+        <circle class="head" cx="{{ host.memory_spark.last_x }}" cy="{{ host.memory_spark.last_y }}" r="1.8"/>
+      </svg>
+      {% endif %}
+    </div>
     <div class="value">{{ "%.1f"|format(host.memory_used_gb) }} <small>of {{ "%.0f"|format(host.memory_total_gb) }} GB</small></div>
     <div class="note">{{ host.memory_percent | round | int }}% in use</div>
     <div class="meter" data-state="{{ host_states.memory }}">
@@ -24,7 +34,17 @@
   </div>
 
   <div class="stat">
-    <div class="label">Server CPU</div>
+    <div class="top">
+      <div class="label">Server CPU</div>
+      {% if host.cpu_spark %}
+      <svg class="spark" viewBox="0 0 {{ host.cpu_spark.width }} {{ host.cpu_spark.height }}"
+           preserveAspectRatio="none" aria-hidden="true">
+        <path class="area" d="{{ host.cpu_spark.area }}"/>
+        <path class="line" d="{{ host.cpu_spark.line }}"/>
+        <circle class="head" cx="{{ host.cpu_spark.last_x }}" cy="{{ host.cpu_spark.last_y }}" r="1.8"/>
+      </svg>
+      {% endif %}
+    </div>
     <div class="value">{{ host.cpu_percent | round | int }}<small>%</small></div>
     <div class="note">{{ host.cpu_cores }} cores</div>
     <div class="meter" data-state="{{ host_states.cpu }}">
@@ -32,7 +52,7 @@
   </div>
 
   <div class="stat">
-    <div class="label">Disk</div>
+    <div class="top"><div class="label">Disk</div></div>
     <div class="value">{{ "%.0f"|format(host.disk_free_gb) }} <small>GB free</small></div>
     <div class="note">{{ host.disk_percent | round | int }}% of {{ "%.0f"|format(host.disk_total_gb) }} GB used</div>
     <div class="meter" data-state="{{ host_states.disk }}">
@@ -100,6 +120,7 @@
       {% endif %}
 
       <div class="app-meta">
+        {% if app.usage and app.usage.uptime and app.status == 'live' %}up {{ app.usage.uptime }} · {% endif %}
         {% if app.owner %}{{ app.owner }}{% else %}unknown{% endif %}
         {% if app.deployed_at %} · {{ app.deployed_at | datetime }}{% endif %}
       </div>

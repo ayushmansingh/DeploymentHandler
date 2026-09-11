@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +26,21 @@ WARNING_PERCENT = 70.0
 CRITICAL_PERCENT = 90.0
 
 _DISK_CACHE_SECONDS = 120
+
+# A short rolling history, so the dashboard can show whether a number is
+# climbing rather than only what it is right now. Held in memory: it is
+# context for a glance, not a record worth keeping across restarts.
+HISTORY_POINTS = 40
+SAMPLE_EVERY_SECONDS = 10
+
+# The sparkline's own geometry. Stated once and carried in the result, so the
+# drawing and the box it is drawn into cannot disagree - they did, and the
+# line was laid out for a larger box and clipped out of sight entirely.
+SPARK_WIDTH = 62
+SPARK_HEIGHT = 22
+
+_history: deque[tuple[float, float]] = deque(maxlen=HISTORY_POINTS)
+_last_sample = 0.0
 
 _process_cache: dict[int, psutil.Process] = {}
 _disk_cache: dict[str, tuple[float, int]] = {}
@@ -131,8 +147,96 @@ def for_app(row) -> Usage:
     return Usage(cpu, memory, disk_bytes(row["name"]))
 
 
+def sample() -> None:
+    """Record one point of host CPU and memory, at most every few seconds.
+
+    Driven by whoever asks - a dashboard poll or the supervisor's own loop -
+    so the series keeps filling whether or not anyone is watching.
+    """
+    global _last_sample
+    now = time.time()
+    with _lock:
+        if now - _last_sample < SAMPLE_EVERY_SECONDS:
+            return
+        _last_sample = now
+    _history.append((psutil.cpu_percent(interval=None), psutil.virtual_memory().percent))
+
+
+def history() -> tuple[list[float], list[float]]:
+    """The recorded CPU and memory series, oldest first."""
+    points = list(_history)
+    return [p[0] for p in points], [p[1] for p in points]
+
+
+def spark(values: list[float], width: float = SPARK_WIDTH,
+          height: float = SPARK_HEIGHT,
+          floor: float = 0.0, ceiling: float = 100.0) -> dict[str, str] | None:
+    """Turn a series into an SVG path pair - the line, and the area under it.
+
+    Returns None below two points: a sparkline drawn from one reading implies
+    a trend that has not been observed.
+    """
+    if len(values) < 2:
+        return None
+
+    span = max(ceiling - floor, 1e-9)
+    # Inset on every side so the stroke and the marker at the end sit wholly
+    # inside the box. Without it they paint over the edge of the tile.
+    pad = 2.0
+    drawable = max(width - pad * 2, 1e-9)
+    step = drawable / (len(values) - 1)
+    usable = height - pad * 2
+
+    points = [
+        (
+            round(pad + index * step, 2),
+            round(height - pad - (min(max(value, floor), ceiling) - floor) / span * usable, 2),
+        )
+        for index, value in enumerate(values)
+    ]
+    line = "M" + " L".join(f"{x},{y}" for x, y in points)
+    area = f"{line} L{points[-1][0]},{height} L{points[0][0]},{height} Z"
+    return {
+        "line": line,
+        "area": area,
+        "last_x": str(points[-1][0]),
+        "last_y": str(points[-1][1]),
+        # Carried with the paths so the template renders the box these points
+        # were actually laid out for.
+        "width": str(width),
+        "height": str(height),
+    }
+
+
+def uptime_seconds(pid: int | None) -> float:
+    """How long an app's front process has been up, from the process itself."""
+    if not pid:
+        return 0.0
+    proc = _process(pid)
+    if proc is None:
+        return 0.0
+    try:
+        return max(0.0, time.time() - proc.create_time())
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return 0.0
+
+
+def human_duration(seconds: float) -> str:
+    if seconds < 90:
+        return f"{int(seconds)}s"
+    minutes = seconds / 60
+    if minutes < 90:
+        return f"{int(minutes)}m"
+    hours = minutes / 60
+    if hours < 48:
+        return f"{int(hours)}h"
+    return f"{int(hours / 24)}d"
+
+
 def host() -> dict:
     """What the machine as a whole is doing."""
+    sample()
+    cpu_series, memory_series = history()
     memory = psutil.virtual_memory()
     config.ensure_dirs()
     disk = psutil.disk_usage(str(config.DATA_DIR))
@@ -146,6 +250,8 @@ def host() -> dict:
         "disk_total_gb": disk.total / 1024**3,
         "disk_free_gb": disk.free / 1024**3,
         "disk_percent": disk.percent,
+        "cpu_spark": spark(cpu_series),
+        "memory_spark": spark(memory_series),
     }
 
 

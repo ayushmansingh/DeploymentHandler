@@ -140,6 +140,7 @@ def _app_summary(row) -> dict:
             "memory_state": metrics.state_for(memory_percent),
             "memory_limit_mb": config.APP_MEMORY_LIMIT_MB,
             "disk": metrics.human_bytes(usage.disk_bytes),
+            "uptime": metrics.human_duration(metrics.uptime_seconds(row["front_pid"])),
         }
         summary["memory_mb"] = summary["usage"]["memory_mb"] or None
     return summary

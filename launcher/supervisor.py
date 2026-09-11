@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import appdata, config, db, detect, native, ports, runtime
+from . import appdata, config, db, detect, metrics, native, ports, runtime
 
 _thread: threading.Thread | None = None
 _stop = threading.Event()
@@ -182,6 +182,7 @@ def restore_on_startup() -> None:
 def _loop() -> None:
     while not _stop.wait(config.SUPERVISOR_INTERVAL_SECONDS):
         try:
+            metrics.sample()
             with _lock:
                 check_once()
         except Exception:  # noqa: BLE001 - the supervisor must never die
