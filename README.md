@@ -350,6 +350,12 @@ Things caught automatically, before or during the build:
 - missing `build` script in `package.json`
 - the app building but never answering HTTP
 
+## Proposals not yet built
+
+- [Agent access](docs/agent-access.md) - letting an AI agent discover the
+  server, read the rules, deploy and follow its own build, without a person
+  driving the browser.
+
 ## Development
 
 ```bash
