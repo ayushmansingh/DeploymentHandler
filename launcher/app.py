@@ -100,7 +100,9 @@ def _require_app(name: str):
 
 # Order the dashboard puts apps in: what is running first, what needs
 # attention last, so the useful links are always at the top of the page.
-_STATUS_ORDER = {"live": 0, "building": 1, "stopped": 2, "new": 3, "failed": 4}
+_STATUS_ORDER = {
+    "live": 0, "building": 1, "needs_setup": 2, "stopped": 3, "new": 4, "failed": 5,
+}
 
 
 def _app_summary(row) -> dict:
@@ -122,6 +124,7 @@ def _app_summary(row) -> dict:
         "error": deploy["error_summary"] if deploy else None,
         "usage": None,
         "memory_mb": None,
+        "missing_settings": [d["name"] for d in db.missing_settings(int(row["id"]))],
     }
     if usage is not None:
         # Memory is shown against the per-app limit, since that is the number
@@ -306,7 +309,7 @@ async def replace_app(
 @app.get("/app/{name}", response_class=HTMLResponse)
 def app_detail(request: Request, name: str, deploy: int | None = None,
                setting_saved: str = "", setting_removed: str = "",
-               setting_error: str = ""):
+               setting_error: str = "", started: str = ""):
     row = _require_app(name)
     deploys = db.list_deploys(int(row["id"]), limit=10)
     current = db.get_deploy(deploy) if deploy else (deploys[0] if deploys else None)
@@ -323,11 +326,13 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
             "data_dir": appdata.dir_for(name),
             "usage": _app_summary(row)["usage"],
             "settings": db.list_setting_keys(int(row["id"])),
+            "missing_settings": db.missing_settings(int(row["id"])),
             "mask": app_settings.MASK,
             "memory_strikes": config.MEMORY_STRIKES_BEFORE_RESTART,
             "setting_saved": setting_saved,
             "setting_removed": setting_removed,
             "setting_error": setting_error,
+            "setting_started": bool(started),
         },
     )
 
@@ -417,9 +422,11 @@ def save_setting(name: str, key: str = Form(...), value: str = Form(...),
         )
 
     db.set_setting(int(row["id"]), clean_key, clean_value, updated_by.strip())
-    _restart_for_settings(row)
+    started = _apply_settings_change(db.get_app_by_name(name))
     return RedirectResponse(
-        f"/app/{name}?setting_saved={quote(clean_key)}", status_code=303
+        f"/app/{name}?setting_saved={quote(clean_key)}"
+        + ("&started=1" if started else ""),
+        status_code=303,
     )
 
 
@@ -427,23 +434,76 @@ def save_setting(name: str, key: str = Form(...), value: str = Form(...),
 def remove_setting(name: str, key: str):
     row = _require_app(name)
     db.delete_setting(int(row["id"]), key)
-    _restart_for_settings(row)
+    _apply_settings_change(db.get_app_by_name(name))
     return RedirectResponse(
         f"/app/{name}?setting_removed={quote(key)}", status_code=303
     )
 
 
-def _restart_for_settings(row) -> None:
-    """Restart a running app so a changed setting reaches it."""
+def _settle_held_deploy(app_id: int) -> None:
+    """Close off the deploy that was waiting, now that the app has started.
+
+    Left alone it stays "needs_setup" with its old message, and the page keeps
+    saying the app is waiting for something it already has.
+    """
+    recent = db.list_deploys(app_id, limit=1)
+    if recent and recent[0]["status"] == "needs_setup":
+        db.finish_deploy(int(recent[0]["id"]), "live", None)
+
+
+def _apply_settings_change(row) -> bool:
+    """Bring the app into line with its settings. True if it started.
+
+    Three cases: it was waiting to be configured and now can run; it is
+    running and needs the new value; or it is running but a setting it
+    declared has just been removed, in which case it stops rather than
+    carrying on in a state it said it could not work in.
+    """
+    if row is None:
+        return False
+    app_id = int(row["id"])
+    missing = db.missing_settings(app_id)
+
+    if row["status"] == "needs_setup":
+        if missing:
+            return False
+        if config.RUNTIME == "native":
+            supervisor.launch(row, reason="Starting now that its settings are set.")
+            _settle_held_deploy(app_id)
+            return True
+        return False
+
     if row["status"] != "live":
-        return
+        return False
+
+    if missing:
+        # It declared this setting; running without it is the state we avoid.
+        if config.RUNTIME == "native":
+            supervisor.stop(row)
+        else:
+            runtime.stop_container(row["container_id"] or "", remove=False)
+        db.update_app(app_id, status="needs_setup")
+        return False
+
+    # A held deploy means the version on disk is newer than the one running,
+    # so this starts the new version rather than merely restarting the old.
+    held = db.list_deploys(app_id, limit=1)
+    taking_over = bool(held and held[0]["status"] == "needs_setup")
+    reason = (
+        "Starting the new version now that its settings are set."
+        if taking_over
+        else "Restarted to pick up a changed setting."
+    )
+
     if config.RUNTIME == "native":
-        supervisor.launch(row, reason="Restarted to pick up a changed setting.")
+        supervisor.launch(row, reason=reason)
     else:
         try:
             runtime._run(["docker", "restart", row["container_id"] or ""])
         except runtime.DockerError:
             pass
+    _settle_held_deploy(app_id)
+    return taking_over
 
 
 @app.post("/app/{name}/stop")

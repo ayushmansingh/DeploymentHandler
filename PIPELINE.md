@@ -124,6 +124,15 @@ Both steps time out after 15 minutes. Two apps build at once at most.
 
 **Only `/api/...` reaches the backend.** A route at `/items` is unreachable.
 
+## 7b. Settings it declared
+
+If `launcher.yaml` lists settings under `settings:` and any of them has no
+value yet, **the app is not started.** It is built and ready, and shows on the
+dashboard as waiting, with the names it needs. Entering the last one starts it.
+
+Nothing is taken offline to do this: on a replace, the version already running
+carries on until the new one is configured.
+
 ## 8. Verify
 
 The server polls the app's public address for up to 45 seconds. Any HTTP
@@ -167,8 +176,9 @@ failed and the app's own output is added to the log.
 2. `app = FastAPI()` at module level in `main.py`.
 3. Everything saved goes under `APP_DATA_DIR` (or `data/`, which is the same
    place). Nothing else survives an update.
-4. Settings come from the environment, set on the app's page. The app must
-   boot without them - it can be deployed first and configured afterwards.
+4. Settings come from the environment. Declare their names under `settings:`
+   in launcher.yaml; a person types the values on the app's page. The app is
+   not started until they are all set.
 5. Do not pin package versions that do not exist. Do not ship `node_modules`.
 6. Do not choose a port; the server assigns one.
 7. WebSockets are not proxied.

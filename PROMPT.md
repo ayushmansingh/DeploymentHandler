@@ -21,13 +21,19 @@ BACKEND (Python)
   e.g. @app.get("/api/items") - a route at /items will not be reachable
 - Read every setting - API keys, tokens, URLs - from the environment:
       KEY = os.environ.get("REDASH_API_KEY", "")
-  They are set on the server through the app's Settings panel. Do NOT read a
-  .env file from the project folder; nobody is at the server to create one
-- The app must still START without those settings, showing an empty or
-  "not configured" state rather than exiting, so it can be deployed first and
-  configured afterwards
+  Do NOT read a .env file from the project folder; nobody is at the server to
+  create one. See SETTINGS below for how they get there
 - The server starts the app for you. A `if __name__ == "__main__"` block is
   harmless but is not used, and the port is chosen by the server
+
+SETTINGS THE APP NEEDS
+- If the app needs an API key, token or URL, list it in a launcher.yaml file
+  at the root of the ZIP - names only, NEVER values:
+      settings:
+        - name: REDASH_API_KEY
+          description: Personal API key from Redash, under Profile
+- Do NOT put the actual key anywhere in the ZIP. A person types it into the
+  server after uploading, and the app starts once they have
 
 SAVING FILES
 - To save anything - a CSV pulled from Redash, a SQLite database, a cache -
@@ -60,11 +66,15 @@ A route at `/items` is unreachable no matter how correct the code is.
 is running on, not the server. This is the single most common failure, so the
 launcher rejects it before building rather than after.
 
-**Settings from the environment, and never required to boot.** Nobody is at
-a terminal on the server to create a `.env`, so keys are set through the app's
-Settings panel and arrive as environment variables. A backend that exits on a
-missing key looks identical to a crash, and cannot be deployed at all before
-someone has a chance to configure it.
+**Settings declared in `launcher.yaml`, valued on the server.** Nobody is at
+a terminal on the server to create a `.env`. The ZIP says which settings the
+app needs; a person types the values into the dashboard. The launcher then
+holds the app - built, not started - until they are all set, so it never runs
+in a half-configured state and never needs restarting afterwards.
+
+Declaring them is what makes that work. An app that reads
+`os.environ["REDASH_API_KEY"]` without declaring it starts anyway, fails on
+the missing key, and looks like a crash.
 
 **Module-level `app`.** That is what the launcher looks for to work out how to
 start the backend.

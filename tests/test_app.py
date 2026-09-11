@@ -377,3 +377,157 @@ def test_changing_a_setting_does_not_start_a_stopped_app(client, monkeypatch):
         data={"key": "TOKEN", "value": "secret"},
         follow_redirects=False,
     )
+
+
+def _needs(client, name, *names):
+    from launcher import db as database
+    upload(client, name=name)
+    row = database.get_app_by_name(name)
+    database.set_declared_settings(
+        int(row["id"]), [{"name": n, "description": ""} for n in names]
+    )
+    return database.get_app_by_name(name)
+
+
+def test_an_app_waiting_on_settings_says_what_it_needs(client):
+    from launcher import db as database
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    # Collapse whitespace: the template wraps these lines, and where it wraps
+    # is not something a test should care about.
+    page = " ".join(client.get("/app/sales-dashboard").text.split())
+    assert "waiting for 1 setting" in page
+    assert "REDASH_API_KEY" in page
+
+    card = client.get("/api/apps").json()["apps"][0]
+    assert card["missing_settings"] == ["REDASH_API_KEY"]
+
+
+def test_supplying_the_last_setting_starts_it(client, monkeypatch):
+    from launcher import db as database, supervisor
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    started = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": started.append(r["name"]))
+
+    client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "REDASH_API_KEY", "value": "secret"},
+        follow_redirects=False,
+    )
+    assert started == ["sales-dashboard"]
+
+
+def test_it_keeps_waiting_while_anything_is_outstanding(client, monkeypatch):
+    from launcher import db as database, supervisor
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY", "REPORT_EMAIL")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    monkeypatch.setattr(
+        supervisor, "launch",
+        lambda r, reason="": pytest.fail("must not start with a setting outstanding"),
+    )
+    client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "REDASH_API_KEY", "value": "secret"},
+        follow_redirects=False,
+    )
+    assert database.get_app_by_name("sales-dashboard")["status"] == "needs_setup"
+
+
+def test_removing_a_declared_setting_stops_a_running_app(client, monkeypatch):
+    """Carrying on without it is the half-configured state being avoided."""
+    from launcher import db as database, supervisor
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY")
+    database.set_setting(int(row["id"]), "REDASH_API_KEY", "secret")
+    database.update_app(int(row["id"]), status="live", host_port=24817, front_pid=99)
+
+    stopped = []
+    monkeypatch.setattr(supervisor, "stop", stopped.append)
+    monkeypatch.setattr(
+        supervisor, "launch",
+        lambda r, reason="": pytest.fail("it should stop, not restart"),
+    )
+
+    client.post(
+        "/app/sales-dashboard/settings/REDASH_API_KEY/delete", follow_redirects=False
+    )
+
+    assert stopped, "the app must be stopped"
+    assert database.get_app_by_name("sales-dashboard")["status"] == "needs_setup"
+
+
+def test_removing_an_undeclared_setting_only_restarts(client, monkeypatch):
+    from launcher import db as database, supervisor
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_setting(int(row["id"]), "EXTRA", "value")
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    restarted = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+
+    client.post("/app/sales-dashboard/settings/EXTRA/delete", follow_redirects=False)
+
+    assert restarted == ["sales-dashboard"]
+    assert database.get_app_by_name("sales-dashboard")["status"] == "live"
+
+
+def test_apps_waiting_for_setup_sort_above_broken_ones(client):
+    from launcher import db as database
+    upload(client, name="aaa-broken")
+    upload(client, name="zzz-waiting")
+    database.update_app(int(database.get_app_by_name("aaa-broken")["id"]), status="failed")
+    database.update_app(int(database.get_app_by_name("zzz-waiting")["id"]), status="needs_setup")
+
+    names = [a["name"] for a in client.get("/api/apps").json()["apps"]]
+    assert names == ["zzz-waiting", "aaa-broken"]
+
+
+def test_the_waiting_message_clears_once_the_app_starts(client, monkeypatch):
+    """Otherwise the page keeps asking for something it already has."""
+    from launcher import db as database, supervisor
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY")
+    deploy_id = int(database.list_deploys(int(row["id"]))[0]["id"])
+    database.finish_deploy(deploy_id, "needs_setup", "needs REDASH_API_KEY")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": None)
+    client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "REDASH_API_KEY", "value": "secret"},
+        follow_redirects=False,
+    )
+
+    after = database.get_deploy(deploy_id)
+    assert after["status"] == "live"
+    assert after["error_summary"] is None
+    page = " ".join(client.get("/app/sales-dashboard").text.split())
+    assert "Waiting for settings" not in page
+
+
+def test_a_new_version_waiting_on_a_setting_leaves_the_old_one_serving(client, monkeypatch):
+    """A working app must not go down because its replacement needs configuring."""
+    from launcher import db as database, supervisor
+    row = _needs(client, "sales-dashboard", "SLACK_WEBHOOK")
+    database.update_app(int(row["id"]), status="live", host_port=24817, front_pid=99)
+    deploy_id = int(database.list_deploys(int(row["id"]))[0]["id"])
+    database.finish_deploy(deploy_id, "needs_setup", "needs SLACK_WEBHOOK")
+
+    launched = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": launched.append(reason))
+
+    # Still live while it waits.
+    assert database.get_app_by_name("sales-dashboard")["status"] == "live"
+    assert launched == []
+
+    client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "SLACK_WEBHOOK", "value": "https://hooks.example"},
+        follow_redirects=False,
+    )
+
+    assert launched and "new version" in launched[0]
+    assert database.get_deploy(deploy_id)["status"] == "live"

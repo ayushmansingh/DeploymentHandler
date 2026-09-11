@@ -6,6 +6,7 @@ mode are simpler to reason about than a shared connection plus locking.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -27,6 +28,9 @@ CREATE TABLE IF NOT EXISTS apps (
     front_pid     INTEGER,
     container_id  TEXT,
     image_tag     TEXT,
+    -- What the current version says it needs, as JSON. Names and descriptions
+    -- only; the values live in app_settings.
+    declared_settings TEXT NOT NULL DEFAULT '[]',
     created_at    REAL    NOT NULL,
     updated_at    REAL    NOT NULL
 );
@@ -96,6 +100,7 @@ _ADDED_COLUMNS = {
         "backend_port": "INTEGER",
         "pid": "INTEGER",
         "front_pid": "INTEGER",
+        "declared_settings": "TEXT NOT NULL DEFAULT '[]'",
     },
     "ports": {
         "role": "TEXT NOT NULL DEFAULT 'public'",
@@ -147,7 +152,7 @@ def update_app(app_id: int, db_path: Path | None = None, **fields: Any) -> None:
         return
     allowed = {
         "kind", "status", "host_port", "backend_port", "pid", "front_pid",
-        "container_id", "image_tag", "owner",
+        "container_id", "image_tag", "owner", "declared_settings",
     }
     bad = set(fields) - allowed
     if bad:
@@ -164,6 +169,30 @@ def update_app(app_id: int, db_path: Path | None = None, **fields: Any) -> None:
 def delete_app(app_id: int, db_path: Path | None = None) -> None:
     with connect(db_path) as conn:
         conn.execute("DELETE FROM apps WHERE id = ?", (app_id,))
+
+
+def set_declared_settings(
+    app_id: int, declared: list[dict], db_path: Path | None = None
+) -> None:
+    """Record what the version now on disk needs."""
+    update_app(app_id, db_path=db_path, declared_settings=json.dumps(declared))
+
+
+def get_declared_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
+    row = get_app(app_id, db_path)
+    if row is None:
+        return []
+    try:
+        declared = json.loads(row["declared_settings"] or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return declared if isinstance(declared, list) else []
+
+
+def missing_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
+    """Declared settings that have no value yet - what the app is waiting on."""
+    have = settings_env(app_id, db_path)
+    return [d for d in get_declared_settings(app_id, db_path) if d.get("name") not in have]
 
 
 def set_setting(

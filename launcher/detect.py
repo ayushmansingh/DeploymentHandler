@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+from . import settings as app_settings
 
 # Directory names we check, in priority order, when locating each half.
 BACKEND_HINTS = ("backend", "api", "server", "app", "src")
@@ -44,11 +46,23 @@ class FrontendSpec:
 
 
 @dataclass
+class SettingSpec:
+    """A setting the app needs before it can run. Declared, never valued.
+
+    The ZIP says what the app needs; the value is typed into the dashboard by
+    a person. That keeps tokens out of ZIP files and out of AI conversations.
+    """
+    name: str
+    description: str = ""
+
+
+@dataclass
 class Spec:
     kind: str                       # backend | frontend | fullstack
     backend: BackendSpec | None
     frontend: FrontendSpec | None
     notes: list[str]
+    settings: list[SettingSpec] = field(default_factory=list)
 
 
 def _find_dir_containing(root: Path, filename: str, hints: tuple[str, ...]) -> Path | None:
@@ -167,6 +181,44 @@ def _detect_frontend(root: Path) -> FrontendSpec | None:
     )
 
 
+def _parse_settings(data: dict) -> list[SettingSpec]:
+    """Read the `settings:` list, accepting either names or name/description.
+
+    Validated here rather than at launch: a mistyped name would otherwise be
+    discovered only when the app could not find its own configuration.
+    """
+    raw = data.get("settings") or []
+    if not isinstance(raw, list):
+        raise DetectionError(
+            "In launcher.yaml, `settings` should be a list of setting names."
+        )
+
+    declared: list[SettingSpec] = []
+    for entry in raw:
+        if isinstance(entry, str):
+            name, description = entry, ""
+        elif isinstance(entry, dict) and "name" in entry:
+            name, description = str(entry["name"]), str(entry.get("description", ""))
+        else:
+            raise DetectionError(
+                "Each item under `settings` should be a name, or a name and a "
+                "description."
+            )
+        try:
+            name = app_settings.clean_key(name)
+        except app_settings.InvalidSetting as exc:
+            raise DetectionError(f"In launcher.yaml: {exc}") from exc
+        declared.append(SettingSpec(name=name, description=description.strip()))
+
+    seen = [d.name for d in declared]
+    duplicates = {n for n in seen if seen.count(n) > 1}
+    if duplicates:
+        raise DetectionError(
+            "launcher.yaml lists the same setting twice: " + ", ".join(sorted(duplicates))
+        )
+    return declared
+
+
 def _from_manifest(root: Path, data: dict) -> Spec:
     notes = ["Using settings from launcher.yaml"]
     backend = frontend = None
@@ -195,7 +247,15 @@ def _from_manifest(root: Path, data: dict) -> Spec:
         raise DetectionError(
             "Your launcher.yaml does not describe a backend or a frontend."
         )
-    return Spec(kind=_kind(backend, frontend), backend=backend, frontend=frontend, notes=notes)
+    declared = _parse_settings(data)
+    if declared:
+        notes.append(
+            "Needs settings: " + ", ".join(d.name for d in declared)
+        )
+    return Spec(
+        kind=_kind(backend, frontend), backend=backend, frontend=frontend,
+        notes=notes, settings=declared,
+    )
 
 
 def _kind(backend: BackendSpec | None, frontend: FrontendSpec | None) -> str:

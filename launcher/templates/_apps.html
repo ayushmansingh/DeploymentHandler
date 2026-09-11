@@ -70,6 +70,13 @@
         <div class="app-error">{{ app.error }}</div>
       {% endif %}
 
+      {% if app.missing_settings %}
+        <div class="app-meta" style="color:var(--accent-hi)">
+          Needs {{ app.missing_settings | join(', ') }} before it can
+          {% if app.status == 'needs_setup' %}start{% else %}update{% endif %}
+        </div>
+      {% endif %}
+
       {% if app.usage and app.status == 'live' %}
       <div class="usage">
         <div class="usage-row">
@@ -98,8 +105,10 @@
       </div>
 
       <div class="app-actions">
-        {% if clickable %}<span class="hint">Click to open</span>{% endif %}
-        <a class="manage" href="/app/{{ app.name }}">Manage</a>
+        {% if clickable %}<span class="hint">Click to open</span>
+        {% elif app.status == 'needs_setup' %}<span class="hint">Needs setting up</span>
+        {% endif %}
+        <a class="manage" href="/app/{{ app.name }}">{% if app.status == 'needs_setup' %}Set up{% else %}Manage{% endif %}</a>
       </div>
     </div>
   {% endfor %}

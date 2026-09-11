@@ -73,10 +73,26 @@
   {% elif setting_saved %}
     <div class="banner ok" style="margin-top:14px">
       <strong>{{ setting_saved }}</strong> saved.
-      {% if app['status'] == 'live' %}The app was restarted so it takes effect.{% endif %}</div>
+      {% if setting_started %}The app has started.
+      {% elif app['status'] == 'live' %}The app was restarted so it takes effect.
+      {% endif %}</div>
   {% elif setting_removed %}
     <div class="banner ok" style="margin-top:14px">
-      <strong>{{ setting_removed }}</strong> removed.</div>
+      <strong>{{ setting_removed }}</strong> removed.
+      {% if app['status'] == 'needs_setup' %}The app declared it, so it has been
+      stopped until it is set again.{% endif %}</div>
+  {% endif %}
+
+  {% if missing_settings %}
+  <div class="banner working" style="margin-top:14px">
+    <strong>This app is waiting for {{ missing_settings | length }}
+      setting{{ 's' if missing_settings | length != 1 }}.</strong>
+    <ul style="margin:8px 0 0;padding-left:20px">
+      {% for item in missing_settings %}
+      <li><code>{{ item.name }}</code>{% if item.description %} - {{ item.description }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
   {% endif %}
 
   {% if settings %}
@@ -107,7 +123,8 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div>
         <label for="key">Name</label>
-        <input type="text" id="key" name="key" placeholder="REDASH_API_KEY" required>
+        <input type="text" id="key" name="key" placeholder="REDASH_API_KEY"
+               value="{{ missing_settings[0].name if missing_settings else '' }}" required>
       </div>
       <div>
         <label for="value">Value</label>

@@ -15,6 +15,16 @@
   </div>
   {% endif %}
 
+  {% if current and current['status'] == 'needs_setup' %}
+  <div class="banner working">
+    <strong>Waiting for settings.</strong>
+    {{ current['error_summary'] }}
+    <div style="margin-top:6px">Fill them in below and the app starts on its own.
+      {% if app['status'] == 'live' %}The previous version is still running until
+      then, so nothing is offline.{% endif %}</div>
+  </div>
+  {% endif %}
+
   {% if url and app['status'] == 'live' %}
   <div class="banner ok"><strong>Your app is live:</strong>
     <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a></div>

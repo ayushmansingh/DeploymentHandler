@@ -245,9 +245,28 @@ both typed in, so each app uses whatever names its code expects. They are
 handed to the app when it starts, survive being replaced with a newer ZIP, and
 never travel inside the ZIP itself.
 
+An app declares what it needs in `launcher.yaml`, names only:
+
+```yaml
+settings:
+  - name: REDASH_API_KEY
+    description: Personal API key from Redash, under Profile
+```
+
+**An app that declares settings is not started until they are set.** It builds
+as normal and then waits, showing on the dashboard as needing setting up with
+the names it is waiting for. Entering the last one starts it. So an app is
+never running in a half-configured state, and nothing has to be restarted
+afterwards.
+
+On a replace, the version already running carries on serving until the new one
+is configured - a working app does not go down because its replacement needs a
+key.
+
 **Values cannot be read back.** Once saved, the page shows the name, a mask,
 and when it last changed. Changing one means typing a new value over it.
-Saving or removing a setting restarts that app so the change takes effect.
+Changing a value restarts the app; removing one it declared stops it until it
+is set again.
 
 Settings can never override `PORT`, `APP_DATA_DIR` or `PYTHONUNBUFFERED` - the
 launcher applies its own last, so a stored value cannot break an app's port or

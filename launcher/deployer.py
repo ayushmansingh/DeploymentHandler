@@ -184,6 +184,13 @@ def run_deploy(deploy_id: int) -> None:
         # Saved files live outside the source tree, so they outlive this deploy.
         data_dir = appdata.attach(name, src, spec, log.write)
 
+        # What this version says it needs. Recorded before the build so the
+        # page can ask for it even if the build then fails.
+        db.set_declared_settings(
+            int(app["id"]),
+            [{"name": d.name, "description": d.description} for d in spec.settings],
+        )
+
         # 3. Preflight the mistake that costs the most time to discover late.
         if spec.frontend:
             leak = _scan_for_localhost(src, spec.frontend.path)
@@ -193,11 +200,20 @@ def run_deploy(deploy_id: int) -> None:
                 return
 
         # 4. Install dependencies and build, then 5. start the new version.
+        #
+        # Settings are checked after building rather than before: the build
+        # needs no one present, and stopping at the last moment means an app
+        # is never started without the configuration it declared.
         if config.RUNTIME == "native":
             code = native.prepare(src, spec, log.write)
             if code != 0:
                 _fail(deploy_id, log, errors.diagnose(log.read()))
                 _apply_failure_status(app, log, swapped)
+                return
+
+            missing = db.missing_settings(int(app["id"]))
+            if missing:
+                _hold_for_settings(app, deploy_id, missing, log)
                 return
 
             host_port = ports.allocate(int(app["id"]), ports.PUBLIC)
@@ -229,6 +245,11 @@ def run_deploy(deploy_id: int) -> None:
             if code != 0:
                 _fail(deploy_id, log, errors.diagnose(log.read()))
                 _apply_failure_status(app, log, swapped)
+                return
+
+            missing = db.missing_settings(int(app["id"]))
+            if missing:
+                _hold_for_settings(app, deploy_id, missing, log)
                 return
 
             host_port = ports.allocate(int(app["id"]), ports.PUBLIC)
@@ -301,6 +322,32 @@ def run_deploy(deploy_id: int) -> None:
             ),
         )
         _apply_failure_status(app, log, swapped)
+
+
+def _hold_for_settings(app_row, deploy_id: int, missing: list[dict], log: _Log) -> None:
+    """Stop short of starting an app that has not been configured yet.
+
+    Built and ready, but deliberately not running: an app started without the
+    settings it declared would report itself live while being unusable, which
+    is worse than plainly saying it is waiting for something.
+    """
+    names = ", ".join(d["name"] for d in missing)
+    log.line("")
+    log.line(f"[launcher] Built successfully. Waiting for settings: {names}")
+    log.line("[launcher] Set them on this app's page and it will start.")
+
+    db.finish_deploy(
+        deploy_id, "needs_setup",
+        "Built successfully, but this app needs settings before it can start: " + names,
+    )
+
+    # A previous version that is already serving carries on. Only the new
+    # version waits, and it waits without taking anything offline.
+    if _is_serving(app_row):
+        log.line("[launcher] The previous version is still running in the meantime.")
+        db.update_app(int(app_row["id"]), status="live")
+    else:
+        db.update_app(int(app_row["id"]), status="needs_setup")
 
 
 def _clear_source_dir(app_row, src: Path, log: _Log) -> None:

@@ -123,6 +123,7 @@
   .pill.live { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good-ink); }
   .pill.failed { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical-ink); }
   .pill.building, .pill.queued { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning-ink); }
+  .pill.needs_setup { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-hi); }
 
   pre.log {
     background: #16181c; color: #dfe3e8; padding: 15px; border-radius: 10px;
@@ -195,6 +196,7 @@
   .app-card.live { border-left-color: var(--good); }
   .app-card.failed { border-left-color: var(--critical); }
   .app-card.building, .app-card.queued { border-left-color: var(--warning); }
+  .app-card.needs_setup { border-left-color: var(--accent); }
   .app-card.live:hover { box-shadow: 0 2px 4px rgba(11,11,11,.06), 0 10px 24px rgba(11,11,11,.09);
                          transform: translateY(-1px); }
   .app-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
