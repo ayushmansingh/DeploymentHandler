@@ -189,10 +189,23 @@ def get_declared_settings(app_id: int, db_path: Path | None = None) -> list[dict
     return declared if isinstance(declared, list) else []
 
 
-def missing_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
-    """Declared settings that have no value yet - what the app is waiting on."""
+def unset_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
+    """Every declared setting that has no value yet, required or not.
+
+    Optional ones are listed so nobody has to read the source to find out they
+    exist; they simply do not hold the app back.
+    """
     have = settings_env(app_id, db_path)
     return [d for d in get_declared_settings(app_id, db_path) if d.get("name") not in have]
+
+
+def missing_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
+    """The unset settings that actually stop the app starting.
+
+    A declaration is required unless it says otherwise, so an older record
+    without the field still behaves as it did.
+    """
+    return [d for d in unset_settings(app_id, db_path) if d.get("required", True)]
 
 
 def set_setting(

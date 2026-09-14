@@ -32,6 +32,12 @@ SETTINGS THE APP NEEDS
       settings:
         - name: REDASH_API_KEY
           description: Personal API key from Redash, under Profile
+        - name: SLACK_WEBHOOK
+          description: Optional - alerts are sent here if it is set
+          required: false
+- The app does not start until every REQUIRED setting has been given a value.
+  Mark anything the app can run without as `required: false`, or it will hold
+  the app back
 - Do NOT put the actual key anywhere in the ZIP. A person types it into the
   server after uploading, and the app starts once they have
 
@@ -75,6 +81,11 @@ in a half-configured state and never needs restarting afterwards.
 Declaring them is what makes that work. An app that reads
 `os.environ["REDASH_API_KEY"]` without declaring it starts anyway, fails on
 the missing key, and looks like a crash.
+
+`required: false` is the other half. A setting the app can run without - an
+alert webhook, a feature nobody has turned on yet - is still worth declaring
+so it appears on the app's page and nobody has to read the source to discover
+it exists. It just does not hold the app back.
 
 **Module-level `app`.** That is what the launcher looks for to work out how to
 start the backend.

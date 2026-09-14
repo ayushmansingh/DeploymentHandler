@@ -188,7 +188,10 @@ def run_deploy(deploy_id: int) -> None:
         # page can ask for it even if the build then fails.
         db.set_declared_settings(
             int(app["id"]),
-            [{"name": d.name, "description": d.description} for d in spec.settings],
+            [
+                {"name": d.name, "description": d.description, "required": d.required}
+                for d in spec.settings
+            ],
         )
 
         # 3. Preflight the mistake that costs the most time to discover late.

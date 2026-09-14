@@ -47,13 +47,18 @@ class FrontendSpec:
 
 @dataclass
 class SettingSpec:
-    """A setting the app needs before it can run. Declared, never valued.
+    """A setting the app uses. Declared, never valued.
 
     The ZIP says what the app needs; the value is typed into the dashboard by
     a person. That keeps tokens out of ZIP files and out of AI conversations.
+
+    `required` is what decides whether the app waits. An optional setting is
+    still listed so nobody has to read the source to discover it exists, but
+    the app runs without it.
     """
     name: str
     description: str = ""
+    required: bool = True
 
 
 @dataclass
@@ -181,6 +186,22 @@ def _detect_frontend(root: Path) -> FrontendSpec | None:
     )
 
 
+def _as_bool(value: object, name: str) -> bool:
+    """YAML gives `required: no` as False already, but a quoted value arrives
+    as a string, and silently treating "false" as true would hold an app back
+    for a setting its author marked optional."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("true", "yes", "y", "1"):
+        return True
+    if text in ("false", "no", "n", "0"):
+        return False
+    raise DetectionError(
+        f'In launcher.yaml, `required` for {name} should be true or false, not "{value}".'
+    )
+
+
 def _parse_settings(data: dict) -> list[SettingSpec]:
     """Read the `settings:` list, accepting either names or name/description.
 
@@ -195,10 +216,13 @@ def _parse_settings(data: dict) -> list[SettingSpec]:
 
     declared: list[SettingSpec] = []
     for entry in raw:
+        required = True
         if isinstance(entry, str):
             name, description = entry, ""
         elif isinstance(entry, dict) and "name" in entry:
-            name, description = str(entry["name"]), str(entry.get("description", ""))
+            name = str(entry["name"])
+            description = str(entry.get("description", ""))
+            required = _as_bool(entry.get("required", True), name)
         else:
             raise DetectionError(
                 "Each item under `settings` should be a name, or a name and a "
@@ -208,7 +232,9 @@ def _parse_settings(data: dict) -> list[SettingSpec]:
             name = app_settings.clean_key(name)
         except app_settings.InvalidSetting as exc:
             raise DetectionError(f"In launcher.yaml: {exc}") from exc
-        declared.append(SettingSpec(name=name, description=description.strip()))
+        declared.append(SettingSpec(
+            name=name, description=description.strip(), required=required
+        ))
 
     seen = [d.name for d in declared]
     duplicates = {n for n in seen if seen.count(n) > 1}
@@ -248,10 +274,12 @@ def _from_manifest(root: Path, data: dict) -> Spec:
             "Your launcher.yaml does not describe a backend or a frontend."
         )
     declared = _parse_settings(data)
-    if declared:
-        notes.append(
-            "Needs settings: " + ", ".join(d.name for d in declared)
-        )
+    needed = [d.name for d in declared if d.required]
+    optional = [d.name for d in declared if not d.required]
+    if needed:
+        notes.append("Needs settings: " + ", ".join(needed))
+    if optional:
+        notes.append("Optional settings: " + ", ".join(optional))
     return Spec(
         kind=_kind(backend, frontend), backend=backend, frontend=frontend,
         notes=notes, settings=declared,

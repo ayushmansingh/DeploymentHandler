@@ -127,3 +127,87 @@ def test_corrupt_declarations_do_not_block_an_app(app_id):
     """A bad value in the column must not make the app permanently unstartable."""
     db.update_app(app_id, declared_settings="not json at all")
     assert db.missing_settings(app_id) == []
+
+
+# --- optional settings ----------------------------------------------------
+
+def test_a_setting_can_declare_itself_optional(tmp_path):
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\n"
+            "settings:\n"
+            "  - name: REDASH_API_KEY\n"
+            "  - name: SLACK_WEBHOOK\n    required: false\n"
+        ),
+    })
+    spec = detect.detect(tmp_path)
+    assert [(d.name, d.required) for d in spec.settings] == [
+        ("REDASH_API_KEY", True), ("SLACK_WEBHOOK", False),
+    ]
+
+
+def test_settings_are_required_unless_they_say_otherwise(tmp_path):
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": "backend:\n  path: ./backend\nsettings:\n  - TOKEN\n",
+    })
+    assert detect.detect(tmp_path).settings[0].required is True
+
+
+@pytest.mark.parametrize("written,expected", [
+    ("false", False), ("no", False), ('"false"', False), ("0", False),
+    ("true", True), ("yes", True), ('"true"', True),
+])
+def test_required_accepts_the_ways_people_write_it(tmp_path, written, expected):
+    """Quoted values arrive as strings; treating "false" as true would hold an
+    app back for a setting its author marked optional."""
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\n"
+            f"settings:\n  - name: TOKEN\n    required: {written}\n"
+        ),
+    })
+    assert detect.detect(tmp_path).settings[0].required is expected
+
+
+def test_a_nonsense_required_value_is_refused(tmp_path):
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\n"
+            "settings:\n  - name: TOKEN\n    required: sometimes\n"
+        ),
+    })
+    with pytest.raises(detect.DetectionError, match="should be true or false"):
+        detect.detect(tmp_path)
+
+
+def test_an_optional_setting_does_not_hold_the_app_back(data_dir):
+    db.init()
+    app_id = db.create_app("alpha")
+    db.set_declared_settings(app_id, [
+        {"name": "REDASH_API_KEY", "description": "", "required": True},
+        {"name": "SLACK_WEBHOOK", "description": "", "required": False},
+    ])
+
+    # Both unset: only the required one stops it starting.
+    assert [d["name"] for d in db.unset_settings(app_id)] == [
+        "REDASH_API_KEY", "SLACK_WEBHOOK",
+    ]
+    assert [d["name"] for d in db.missing_settings(app_id)] == ["REDASH_API_KEY"]
+
+    db.set_setting(app_id, "REDASH_API_KEY", "secret")
+    assert db.missing_settings(app_id) == [], "the optional one must not block"
+    assert [d["name"] for d in db.unset_settings(app_id)] == ["SLACK_WEBHOOK"]
+
+
+def test_older_records_without_the_field_stay_required(data_dir):
+    """Declarations stored before optional settings existed must not suddenly
+    stop holding their apps back."""
+    db.init()
+    app_id = db.create_app("alpha")
+    db.set_declared_settings(app_id, [{"name": "TOKEN", "description": ""}])
+
+    assert [d["name"] for d in db.missing_settings(app_id)] == ["TOKEN"]

@@ -126,8 +126,9 @@ Both steps time out after 15 minutes. Two apps build at once at most.
 
 ## 7b. Settings it declared
 
-If `launcher.yaml` lists settings under `settings:` and any of them has no
-value yet, **the app is not started.** It is built and ready, and shows on the
+If `launcher.yaml` lists settings under `settings:` and any **required** one
+has no value yet, **the app is not started.** A setting marked
+`required: false` is listed on the app's page but never holds it back. It is built and ready, and shows on the
 dashboard as waiting, with the names it needs.
 
 The app's page offers one box per outstanding setting - any number of them -

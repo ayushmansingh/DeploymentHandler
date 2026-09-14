@@ -670,3 +670,58 @@ def test_a_working_app_meets_replace_first(client):
 
     page = client.get("/app/sales-dashboard").text
     assert page.index("Replace with a newer ZIP") < page.index("<strong>Settings</strong>")
+
+
+def test_an_app_starts_with_an_optional_setting_unset(client, monkeypatch):
+    from launcher import db as database, supervisor
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_declared_settings(int(row["id"]), [
+        {"name": "REDASH_API_KEY", "description": "", "required": True},
+        {"name": "SLACK_WEBHOOK", "description": "", "required": False},
+    ])
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    started = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": started.append(r["name"]))
+
+    client.post(
+        "/app/sales-dashboard/settings/fill",
+        data={"setting__REDASH_API_KEY": "secret"},
+        follow_redirects=False,
+    )
+    assert started == ["sales-dashboard"], "the optional one must not hold it back"
+
+
+def test_an_optional_setting_is_offered_and_labelled(client):
+    from launcher import db as database
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_declared_settings(int(row["id"]), [
+        {"name": "SLACK_WEBHOOK", "description": "Where alerts go", "required": False},
+    ])
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    page = " ".join(client.get("/app/sales-dashboard").text.split())
+    assert 'name="setting__SLACK_WEBHOOK"' in page
+    assert "optional" in page
+    assert "waiting for" not in page, "an optional setting is not something to wait for"
+
+
+def test_removing_an_optional_setting_only_restarts(client, monkeypatch):
+    from launcher import db as database, supervisor
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_declared_settings(int(row["id"]), [
+        {"name": "SLACK_WEBHOOK", "description": "", "required": False},
+    ])
+    database.set_setting(int(row["id"]), "SLACK_WEBHOOK", "https://hooks.example")
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    restarted = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+
+    client.post("/app/sales-dashboard/settings/SLACK_WEBHOOK/delete", follow_redirects=False)
+
+    assert restarted == ["sales-dashboard"]
+    assert database.get_app_by_name("sales-dashboard")["status"] == "live"

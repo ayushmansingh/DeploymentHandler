@@ -58,6 +58,7 @@
       stopped until it is set again.{% endif %}</div>
   {% endif %}
 
+  {% if outstanding_settings %}
   {% if missing_settings %}
   <div class="banner working" style="margin-top:14px">
     <strong>This app is waiting for {{ missing_settings | length }}
@@ -65,12 +66,15 @@
     Fill {{ 'them' if missing_settings | length != 1 else 'it' }} in below and the
     app starts on its own - there is no need to upload the ZIP again.
   </div>
+  {% endif %}
 
   {# Every outstanding setting in one form, so several are one submission
      rather than a page reload between each. #}
   <form method="post" action="/app/{{ app['name'] }}/settings/fill">
-    {% for item in missing_settings %}
-    <label for="need-{{ loop.index }}"><code>{{ item.name }}</code></label>
+    {% for item in outstanding_settings %}
+    <label for="need-{{ loop.index }}"><code>{{ item.name }}</code>{%
+      if not item.get('required', True) %}<span class="muted"
+      style="font-weight:400"> - optional</span>{% endif %}</label>
     {% if item.description %}
     <p class="muted" style="font-size:12.5px;margin:0 0 6px">{{ item.description }}</p>
     {% endif %}
@@ -86,8 +90,8 @@
 
     <p style="margin:18px 0 0">
       <button type="submit" class="primary">
-        Save{% if missing_settings | length > 1 %} all{% endif %}
-        and start the app</button></p>
+        Save{% if outstanding_settings | length > 1 %} all{% endif %}{%
+        if missing_settings %} and start the app{% endif %}</button></p>
   </form>
   {% endif %}
 

@@ -255,7 +255,15 @@ An app declares what it needs in `launcher.yaml`, names only:
 settings:
   - name: REDASH_API_KEY
     description: Personal API key from Redash, under Profile
+  - name: SLACK_WEBHOOK
+    description: Optional - alerts are sent here if it is set
+    required: false
 ```
+
+A setting is required unless it says otherwise. Mark anything the app can run
+without as `required: false`: it is still listed on the app's page, so nobody
+has to read the source to find out it exists, but it never holds the app
+back.
 
 **An app that declares settings is not started until they are set.** It builds
 as normal and then waits, showing on the dashboard as needing setting up with
