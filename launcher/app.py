@@ -100,6 +100,10 @@ def _require_app(name: str):
 
 # Order the dashboard puts apps in: what is running first, what needs
 # attention last, so the useful links are always at the top of the page.
+# Bulk setting fields are named after the setting, so the form can carry any
+# set of them. Prefixed to keep them apart from the form's own fields.
+SETTING_FIELD_PREFIX = "setting__"
+
 _STATUS_ORDER = {
     "live": 0, "building": 1, "needs_setup": 2, "stopped": 3, "new": 4, "failed": 5,
 }
@@ -349,6 +353,7 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
             "usage": _app_summary(row)["usage"],
             "settings": db.list_setting_keys(int(row["id"])),
             "missing_settings": db.missing_settings(int(row["id"])),
+            "setting_field_prefix": SETTING_FIELD_PREFIX,
             "mask": app_settings.MASK,
             "memory_strikes": config.MEMORY_STRIKES_BEFORE_RESTART,
             "setting_saved": setting_saved,
@@ -447,6 +452,49 @@ def save_setting(name: str, key: str = Form(...), value: str = Form(...),
     started = _apply_settings_change(db.get_app_by_name(name))
     return RedirectResponse(
         f"/app/{name}?setting_saved={quote(clean_key)}"
+        + ("&started=1" if started else ""),
+        status_code=303,
+    )
+
+
+@app.post("/app/{name}/settings/fill")
+async def fill_settings(request: Request, name: str):
+    """Take every outstanding setting at once.
+
+    An app can declare several, and entering them one at a time means a page
+    reload between each. The fields are named after the settings themselves,
+    so this reads them off the form rather than from fixed parameters.
+    """
+    row = _require_app(name)
+    form = await request.form()
+    updated_by = str(form.get("updated_by", "")).strip()
+
+    saved: list[str] = []
+    for field, raw in form.multi_items():
+        if not field.startswith(SETTING_FIELD_PREFIX):
+            continue
+        value = str(raw).strip()
+        if not value:
+            continue  # left blank: still outstanding, not an error
+        try:
+            key = app_settings.clean_key(field[len(SETTING_FIELD_PREFIX):])
+            db.set_setting(int(row["id"]), key, app_settings.clean_value(value),
+                           updated_by)
+        except app_settings.InvalidSetting as exc:
+            return RedirectResponse(
+                f"/app/{name}?setting_error={quote(str(exc))}", status_code=303
+            )
+        saved.append(key)
+
+    if not saved:
+        return RedirectResponse(
+            f"/app/{name}?setting_error={quote('Enter at least one value.')}",
+            status_code=303,
+        )
+
+    started = _apply_settings_change(db.get_app_by_name(name))
+    return RedirectResponse(
+        f"/app/{name}?setting_saved={quote(', '.join(saved))}"
         + ("&started=1" if started else ""),
         status_code=303,
     )

@@ -564,3 +564,109 @@ def test_deploy_is_not_usable_as_an_app_name(client):
     response = upload(client, name="deploy")
     assert response.status_code == 400
     assert "reserved" in response.text
+
+
+def test_several_settings_can_be_filled_in_one_go(client, monkeypatch):
+    """Otherwise each one costs a page reload before the app can start."""
+    from launcher import db as database, supervisor
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY", "REPORT_EMAIL", "SLACK_WEBHOOK")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    started = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": started.append(r["name"]))
+
+    response = client.post(
+        "/app/sales-dashboard/settings/fill",
+        data={
+            "setting__REDASH_API_KEY": "key-123",
+            "setting__REPORT_EMAIL": "team@example.com",
+            "setting__SLACK_WEBHOOK": "https://hooks.example",
+            "updated_by": "Priya",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert database.settings_env(int(row["id"])) == {
+        "REDASH_API_KEY": "key-123",
+        "REPORT_EMAIL": "team@example.com",
+        "SLACK_WEBHOOK": "https://hooks.example",
+    }
+    assert started == ["sales-dashboard"]
+
+
+def test_filling_only_some_leaves_the_app_waiting(client, monkeypatch):
+    from launcher import db as database, supervisor
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY", "REPORT_EMAIL")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    monkeypatch.setattr(
+        supervisor, "launch",
+        lambda r, reason="": pytest.fail("must not start with one still outstanding"),
+    )
+    client.post(
+        "/app/sales-dashboard/settings/fill",
+        data={"setting__REDASH_API_KEY": "key-123", "setting__REPORT_EMAIL": "  "},
+        follow_redirects=False,
+    )
+
+    assert [d["name"] for d in database.missing_settings(int(row["id"]))] == ["REPORT_EMAIL"]
+    assert database.get_app_by_name("sales-dashboard")["status"] == "needs_setup"
+
+
+def test_filling_nothing_says_so(client):
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY")
+    response = client.post(
+        "/app/sales-dashboard/settings/fill",
+        data={"setting__REDASH_API_KEY": "   ", "updated_by": "Priya"},
+        follow_redirects=False,
+    )
+    assert "setting_error" in response.headers["location"]
+
+
+def test_the_waiting_form_offers_a_field_per_setting(client):
+    from launcher import db as database
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY", "REPORT_EMAIL")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    page = client.get("/app/sales-dashboard").text
+
+    assert 'name="setting__REDASH_API_KEY"' in page
+    assert 'name="setting__REPORT_EMAIL"' in page
+    assert "no need to upload the ZIP again" in " ".join(page.split())
+
+
+def test_values_are_never_echoed_into_the_waiting_form(client):
+    from launcher import db as database
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY", "REPORT_EMAIL")
+    database.set_setting(int(row["id"]), "REDASH_API_KEY", "already-secret")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    page = client.get("/app/sales-dashboard").text
+
+    assert "already-secret" not in page
+    assert 'name="setting__REDASH_API_KEY"' not in page, "already set, so not outstanding"
+    assert 'name="setting__REPORT_EMAIL"' in page
+
+
+def test_a_waiting_app_meets_the_settings_form_first(client):
+    """Leading with "Replace with a newer ZIP" reads as "upload it again",
+    which is the one thing that is not needed."""
+    from launcher import db as database
+    row = _needs(client, "sales-dashboard", "REDASH_API_KEY")
+    database.update_app(int(row["id"]), status="needs_setup")
+
+    page = client.get("/app/sales-dashboard").text
+    assert page.index("waiting for 1") < page.index("Replace with a newer ZIP")
+
+
+def test_a_working_app_meets_replace_first(client):
+    from launcher import db as database
+    upload(client, name="sales-dashboard")
+    database.update_app(
+        int(database.get_app_by_name("sales-dashboard")["id"]),
+        status="live", host_port=24817,
+    )
+
+    page = client.get("/app/sales-dashboard").text
+    assert page.index("Replace with a newer ZIP") < page.index("<strong>Settings</strong>")

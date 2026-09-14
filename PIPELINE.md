@@ -128,7 +128,11 @@ Both steps time out after 15 minutes. Two apps build at once at most.
 
 If `launcher.yaml` lists settings under `settings:` and any of them has no
 value yet, **the app is not started.** It is built and ready, and shows on the
-dashboard as waiting, with the names it needs. Entering the last one starts it.
+dashboard as waiting, with the names it needs.
+
+The app's page offers one box per outstanding setting - any number of them -
+and filling the last one starts it. The ZIP does not need uploading again:
+it is already extracted and built, and only the start was held.
 
 Nothing is taken offline to do this: on a replace, the version already running
 carries on until the new one is configured.

@@ -259,9 +259,13 @@ settings:
 
 **An app that declares settings is not started until they are set.** It builds
 as normal and then waits, showing on the dashboard as needing setting up with
-the names it is waiting for. Entering the last one starts it. So an app is
-never running in a half-configured state, and nothing has to be restarted
-afterwards.
+the names it is waiting for.
+
+Its page then offers one box per outstanding setting, however many there are,
+and one button. **There is no need to upload the ZIP again** - it is already
+extracted and built on the server; only the start was held. Filling the last
+one starts it. So an app is never running in a half-configured state, and
+nothing has to be restarted afterwards.
 
 On a replace, the version already running carries on serving until the new one
 is configured - a working app does not go down because its replacement needs a

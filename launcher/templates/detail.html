@@ -8,6 +8,7 @@
 
 <div id="status-region">{% include "_appstatus.html" %}</div>
 
+{% macro replace_card() %}
 <div class="card">
   <strong>Replace with a newer ZIP</strong>
   <p class="muted" style="font-size:13px;margin:4px 0 0">
@@ -32,6 +33,121 @@
     <p style="margin:16px 0 0"><button type="submit" class="primary">Replace</button></p>
   </form>
 </div>
+{% endmacro %}
+
+{% macro settings_card() %}
+<div class="card">
+  <strong>Settings</strong>
+  <p class="muted" style="font-size:13px;margin:4px 0 0">
+    Given to the app as environment variables when it starts, so it can read
+    them with <code>os.environ["NAME"]</code>. Nothing has to be placed on the
+    server by hand, and these survive being replaced with a newer ZIP.</p>
+
+  {% if setting_error %}
+    <div class="banner bad" style="margin-top:14px">{{ setting_error }}</div>
+  {% elif setting_saved %}
+    <div class="banner ok" style="margin-top:14px">
+      <strong>{{ setting_saved }}</strong> saved.
+      {% if setting_started %}The app has started.
+      {% elif app['status'] == 'live' %}The app was restarted so it takes effect.
+      {% endif %}</div>
+  {% elif setting_removed %}
+    <div class="banner ok" style="margin-top:14px">
+      <strong>{{ setting_removed }}</strong> removed.
+      {% if app['status'] == 'needs_setup' %}The app declared it, so it has been
+      stopped until it is set again.{% endif %}</div>
+  {% endif %}
+
+  {% if missing_settings %}
+  <div class="banner working" style="margin-top:14px">
+    <strong>This app is waiting for {{ missing_settings | length }}
+      setting{{ 's' if missing_settings | length != 1 }}.</strong>
+    Fill {{ 'them' if missing_settings | length != 1 else 'it' }} in below and the
+    app starts on its own - there is no need to upload the ZIP again.
+  </div>
+
+  {# Every outstanding setting in one form, so several are one submission
+     rather than a page reload between each. #}
+  <form method="post" action="/app/{{ app['name'] }}/settings/fill">
+    {% for item in missing_settings %}
+    <label for="need-{{ loop.index }}"><code>{{ item.name }}</code></label>
+    {% if item.description %}
+    <p class="muted" style="font-size:12.5px;margin:0 0 6px">{{ item.description }}</p>
+    {% endif %}
+    <input type="password" id="need-{{ loop.index }}"
+           name="{{ setting_field_prefix }}{{ item.name }}"
+           placeholder="paste the value" autocomplete="off"
+           {% if loop.first %}autofocus{% endif %}>
+    {% endfor %}
+
+    <label for="fill_by">Your name</label>
+    <input type="text" id="fill_by" name="updated_by"
+           value="{{ app['owner'] or '' }}" placeholder="Priya">
+
+    <p style="margin:18px 0 0">
+      <button type="submit" class="primary">
+        Save{% if missing_settings | length > 1 %} all{% endif %}
+        and start the app</button></p>
+  </form>
+  {% endif %}
+
+  {% if settings %}
+  <table style="margin-top:14px">
+    <tr><th>Name</th><th>Value</th><th>Last changed</th><th></th></tr>
+    {% for setting in settings %}
+    <tr>
+      <td><code>{{ setting['key'] }}</code></td>
+      <td class="muted" style="font-family:ui-monospace,monospace">{{ mask }}</td>
+      <td class="muted" style="font-size:12.5px">
+        {{ setting['updated_at'] | datetime }}
+        {% if setting['updated_by'] %}· <span class="who">{{ setting['updated_by'] }}</span>{% endif %}</td>
+      <td style="text-align:right">
+        <form method="post" action="/app/{{ app['name'] }}/settings/{{ setting['key'] }}/delete"
+              onsubmit="return confirm('Remove {{ setting['key'] }}?')">
+          <button class="danger">Remove</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="font-size:12.5px;margin:12px 0 0">
+    Values cannot be read back once saved. To change one, add it again with the
+    same name and the new value will replace it.</p>
+  {% else %}
+  <p class="muted" style="font-size:13px;margin-top:14px">No settings yet.</p>
+  {% endif %}
+
+  <details style="margin-top:18px" {% if not settings and not missing_settings %}open{% endif %}>
+    <summary>{% if missing_settings %}Add another setting{% else %}Add or replace a setting{% endif %}</summary>
+  <form method="post" action="/app/{{ app['name'] }}/settings">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <label for="key">Name</label>
+        <input type="text" id="key" name="key" placeholder="REDASH_API_KEY" required>
+      </div>
+      <div>
+        <label for="value">Value</label>
+        <input type="password" id="value" name="value" placeholder="paste it here"
+               autocomplete="off" required>
+      </div>
+    </div>
+    <label for="setting_by">Your name</label>
+    <input type="text" id="setting_by" name="updated_by"
+           value="{{ app['owner'] or '' }}" placeholder="Priya">
+    <p style="margin:16px 0 0"><button type="submit">Save setting</button></p>
+  </form>
+  </details>
+</div>
+{% endmacro %}
+
+{# An app waiting to be configured should meet the settings form first.
+   Leading with "Replace with a newer ZIP" reads as an instruction to
+   upload again, which is exactly what is not needed. #}
+{% if missing_settings %}
+{{ settings_card() }}
+{{ replace_card() }}
+{% else %}
+{{ replace_card() }}
+{{ settings_card() }}
+{% endif %}
 
 {% if usage and app['status'] == 'live' %}
 <div class="card">
@@ -60,84 +176,6 @@
     {{ memory_strikes }} checks in a row is restarted automatically.</p>
 </div>
 {% endif %}
-
-<div class="card">
-  <strong>Settings</strong>
-  <p class="muted" style="font-size:13px;margin:4px 0 0">
-    Given to the app as environment variables when it starts, so it can read
-    them with <code>os.environ["NAME"]</code>. Nothing has to be placed on the
-    server by hand, and these survive being replaced with a newer ZIP.</p>
-
-  {% if setting_error %}
-    <div class="banner bad" style="margin-top:14px">{{ setting_error }}</div>
-  {% elif setting_saved %}
-    <div class="banner ok" style="margin-top:14px">
-      <strong>{{ setting_saved }}</strong> saved.
-      {% if setting_started %}The app has started.
-      {% elif app['status'] == 'live' %}The app was restarted so it takes effect.
-      {% endif %}</div>
-  {% elif setting_removed %}
-    <div class="banner ok" style="margin-top:14px">
-      <strong>{{ setting_removed }}</strong> removed.
-      {% if app['status'] == 'needs_setup' %}The app declared it, so it has been
-      stopped until it is set again.{% endif %}</div>
-  {% endif %}
-
-  {% if missing_settings %}
-  <div class="banner working" style="margin-top:14px">
-    <strong>This app is waiting for {{ missing_settings | length }}
-      setting{{ 's' if missing_settings | length != 1 }}.</strong>
-    <ul style="margin:8px 0 0;padding-left:20px">
-      {% for item in missing_settings %}
-      <li><code>{{ item.name }}</code>{% if item.description %} - {{ item.description }}{% endif %}</li>
-      {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% if settings %}
-  <table style="margin-top:14px">
-    <tr><th>Name</th><th>Value</th><th>Last changed</th><th></th></tr>
-    {% for setting in settings %}
-    <tr>
-      <td><code>{{ setting['key'] }}</code></td>
-      <td class="muted" style="font-family:ui-monospace,monospace">{{ mask }}</td>
-      <td class="muted" style="font-size:12.5px">
-        {{ setting['updated_at'] | datetime }}
-        {% if setting['updated_by'] %}· <span class="who">{{ setting['updated_by'] }}</span>{% endif %}</td>
-      <td style="text-align:right">
-        <form method="post" action="/app/{{ app['name'] }}/settings/{{ setting['key'] }}/delete"
-              onsubmit="return confirm('Remove {{ setting['key'] }}?')">
-          <button class="danger">Remove</button></form></td>
-    </tr>
-    {% endfor %}
-  </table>
-  <p class="muted" style="font-size:12.5px;margin:12px 0 0">
-    Values cannot be read back once saved. To change one, add it again with the
-    same name and the new value will replace it.</p>
-  {% else %}
-  <p class="muted" style="font-size:13px;margin-top:14px">No settings yet.</p>
-  {% endif %}
-
-  <form method="post" action="/app/{{ app['name'] }}/settings">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div>
-        <label for="key">Name</label>
-        <input type="text" id="key" name="key" placeholder="REDASH_API_KEY"
-               value="{{ missing_settings[0].name if missing_settings else '' }}" required>
-      </div>
-      <div>
-        <label for="value">Value</label>
-        <input type="password" id="value" name="value" placeholder="paste it here"
-               autocomplete="off" required>
-      </div>
-    </div>
-    <label for="setting_by">Your name</label>
-    <input type="text" id="setting_by" name="updated_by"
-           value="{{ app['owner'] or '' }}" placeholder="Priya">
-    <p style="margin:16px 0 0"><button type="submit" class="primary">Save setting</button></p>
-  </form>
-</div>
 
 <div class="card">
   <strong>Saved files</strong>
