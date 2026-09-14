@@ -44,19 +44,29 @@ BACKEND (Python)
   harmless but is not used, and the port is chosen by the server
 
 SETTINGS THE APP NEEDS
-- If the app needs an API key, token or URL, list it in a launcher.yaml file
-  at the root of the ZIP - names only, NEVER values:
+- Every setting the app reads from the environment goes in a launcher.yaml
+  file at the root of the ZIP. Do not ship a .env file for these:
       settings:
         - name: REDASH_API_KEY
           description: Personal API key from Redash, under Profile
         - name: SLACK_WEBHOOK
           description: Optional - alerts are sent here if it is set
           required: false
-- The app does not start until every REQUIRED setting has been given a value.
-  Mark anything the app can run without as `required: false`, or it will hold
-  the app back
-- Do NOT put the actual key anywhere in the ZIP. A person types it into the
-  server after uploading, and the app starts once they have
+        - name: PAGE_SIZE
+          description: Rows per page
+          default: 50
+- Three kinds, and the difference matters:
+    SECRET - a key, token or password. Name it, never write the value. A
+      person types it into the server and the app starts once they have
+    OPTIONAL - the app runs without it. Add `required: false`, or it will
+      hold the app back
+    APP'S OWN - a value the app decides, like a page size, a log level or a
+      timezone. Give it a `default:` and nobody is asked for anything; it can
+      still be changed on the server later
+- A default is shown in full on the dashboard because it travels inside the
+  ZIP. NEVER give a default to a key, token or password
+- The app does not start until every setting that is required, and has no
+  default, has been given a value
 
 SAVING FILES
 - To save anything - a CSV pulled from Redash, a SQLite database, a cache -

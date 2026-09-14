@@ -331,6 +331,39 @@ async def replace_app(
     return RedirectResponse(f"/app/{name}?deploy={deploy_id}", status_code=303)
 
 
+def _setting_rows(app_id: int) -> list[dict]:
+    """What the Settings table shows: one row per value the app will run with.
+
+    Two kinds sit side by side. A setting the app declared a default for came
+    out of the ZIP, so it is no secret and its value is shown - hiding it would
+    only stop someone checking what the app is configured with. Anything else
+    was typed in by a person and stays masked.
+
+    A default that has been overridden is still shown, with the value it fell
+    back from, so it is obvious what changed and what "Reset" would restore.
+    """
+    defaults = db.declared_defaults(app_id)
+    stored = {r["key"]: r for r in db.list_setting_keys(app_id)}
+    values = db.settings_env(app_id)
+
+    rows: list[dict] = []
+    for key in sorted(set(defaults) | set(stored)):
+        row = stored.get(key)
+        default = defaults.get(key)
+        secret = default is None
+        rows.append({
+            "key": key,
+            "secret": secret,
+            "value": app_settings.MASK if secret else values.get(key, default),
+            "default": default,
+            "overridden": bool(row and default is not None),
+            "stored": bool(row),
+            "updated_at": row["updated_at"] if row else None,
+            "updated_by": row["updated_by"] if row else "",
+        })
+    return rows
+
+
 @app.get("/app/{name}", response_class=HTMLResponse)
 def app_detail(request: Request, name: str, deploy: int | None = None,
                setting_saved: str = "", setting_removed: str = "",
@@ -351,7 +384,11 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
             "data_size": appdata.human_size(appdata.size_bytes(name)),
             "data_dir": appdata.dir_for(name),
             "usage": _app_summary(row)["usage"],
-            "settings": db.list_setting_keys(int(row["id"])),
+            "settings": _setting_rows(int(row["id"])),
+            "declared_names": [
+                d.get("name") for d in db.get_declared_settings(int(row["id"]))
+                if d.get("name")
+            ],
             "missing_settings": db.missing_settings(int(row["id"])),
             "outstanding_settings": db.unset_settings(int(row["id"])),
             "setting_field_prefix": SETTING_FIELD_PREFIX,

@@ -211,3 +211,100 @@ def test_older_records_without_the_field_stay_required(data_dir):
     db.set_declared_settings(app_id, [{"name": "TOKEN", "description": ""}])
 
     assert [d["name"] for d in db.missing_settings(app_id)] == ["TOKEN"]
+
+
+# ---------------------------------------------------------------------------
+# Settings the app brings its own value for
+# ---------------------------------------------------------------------------
+
+def test_a_default_is_read_from_the_manifest(tmp_path):
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\n"
+            "settings:\n"
+            "  - name: TOKEN\n"
+            "  - name: PAGE_SIZE\n    default: 50\n"
+            "  - name: VERBOSE\n    default: true\n"
+        ),
+    })
+    spec = detect.detect(tmp_path)
+    by_name = {d.name: d for d in spec.settings}
+
+    assert by_name["TOKEN"].default is None
+    # YAML hands back an int and a bool; both have to survive as environment
+    # variables, which are text.
+    assert by_name["PAGE_SIZE"].default == "50"
+    assert by_name["VERBOSE"].default == "true"
+
+
+def test_an_empty_default_is_refused(tmp_path):
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\n"
+            "settings:\n  - name: TOKEN\n    default: \"\"\n"
+        ),
+    })
+    with pytest.raises(detect.DetectionError, match="is empty"):
+        detect.detect(tmp_path)
+
+
+def test_a_list_default_is_refused(tmp_path):
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\n"
+            "settings:\n  - name: HOSTS\n    default:\n      - a\n      - b\n"
+        ),
+    })
+    with pytest.raises(detect.DetectionError, match="single value"):
+        detect.detect(tmp_path)
+
+
+def test_a_defaulted_setting_is_never_waited_for(data_dir):
+    db.init()
+    app_id = db.create_app("alpha")
+    db.set_declared_settings(app_id, [
+        {"name": "TOKEN", "description": "", "required": True, "default": None},
+        {"name": "PAGE_SIZE", "description": "", "required": True, "default": "50"},
+    ])
+
+    # PAGE_SIZE is declared required, but the app answered its own question.
+    assert [d["name"] for d in db.missing_settings(app_id)] == ["TOKEN"]
+    assert [d["name"] for d in db.unset_settings(app_id)] == ["TOKEN"]
+
+
+def test_the_app_runs_with_its_defaults_until_they_are_overridden(data_dir):
+    db.init()
+    app_id = db.create_app("alpha")
+    db.set_declared_settings(app_id, [
+        {"name": "PAGE_SIZE", "description": "", "required": True, "default": "50"},
+        {"name": "TOKEN", "description": "", "required": True, "default": None},
+    ])
+    db.set_setting(app_id, "TOKEN", "abc123")
+
+    assert db.effective_env(app_id) == {"PAGE_SIZE": "50", "TOKEN": "abc123"}
+
+    db.set_setting(app_id, "PAGE_SIZE", "200")
+    assert db.effective_env(app_id)["PAGE_SIZE"] == "200"
+
+    # Removing the override is how you get back to what the ZIP shipped with.
+    db.delete_setting(app_id, "PAGE_SIZE")
+    assert db.effective_env(app_id)["PAGE_SIZE"] == "50"
+    assert db.missing_settings(app_id) == [], "a default is not a missing value"
+
+
+def test_a_default_never_displaces_the_launchers_own_variables(data_dir):
+    """An app declaring `PORT: 8000` as a default must not be able to point
+    itself away from the port it was given."""
+    db.init()
+    app_id = db.create_app("alpha")
+    db.set_declared_settings(app_id, [
+        {"name": "PORT", "description": "", "required": False, "default": "8000"},
+    ])
+
+    env = settings.environment(
+        db.effective_env(app_id), {"PORT": "31234", "APP_DATA_DIR": "/data"}
+    )
+    assert env["PORT"] == "31234"

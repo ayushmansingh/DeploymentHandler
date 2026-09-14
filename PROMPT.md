@@ -27,19 +27,29 @@ BACKEND (Python)
   harmless but is not used, and the port is chosen by the server
 
 SETTINGS THE APP NEEDS
-- If the app needs an API key, token or URL, list it in a launcher.yaml file
-  at the root of the ZIP - names only, NEVER values:
+- Every setting the app reads from the environment goes in a launcher.yaml
+  file at the root of the ZIP. Do not ship a .env file for these:
       settings:
         - name: REDASH_API_KEY
           description: Personal API key from Redash, under Profile
         - name: SLACK_WEBHOOK
           description: Optional - alerts are sent here if it is set
           required: false
-- The app does not start until every REQUIRED setting has been given a value.
-  Mark anything the app can run without as `required: false`, or it will hold
-  the app back
-- Do NOT put the actual key anywhere in the ZIP. A person types it into the
-  server after uploading, and the app starts once they have
+        - name: PAGE_SIZE
+          description: Rows per page
+          default: 50
+- Three kinds, and the difference matters:
+    SECRET - a key, token or password. Name it, never write the value. A
+      person types it into the server and the app starts once they have
+    OPTIONAL - the app runs without it. Add `required: false`, or it will
+      hold the app back
+    APP'S OWN - a value the app decides, like a page size, a log level or a
+      timezone. Give it a `default:` and nobody is asked for anything; it can
+      still be changed on the server later
+- A default is shown in full on the dashboard because it travels inside the
+  ZIP. NEVER give a default to a key, token or password
+- The app does not start until every setting that is required, and has no
+  default, has been given a value
 
 SAVING FILES
 - To save anything - a CSV pulled from Redash, a SQLite database, a cache -
@@ -86,6 +96,25 @@ the missing key, and looks like a crash.
 alert webhook, a feature nobody has turned on yet - is still worth declaring
 so it appears on the app's page and nobody has to read the source to discover
 it exists. It just does not hold the app back.
+
+**`default:` is for the settings the app leads with rather than asks for.** A
+page size, a log level, a timezone: things that belong in configuration but
+that nobody should be made to type before the app will run. The launcher puts
+the default in the environment, so the app starts unattended, and the value is
+still listed on the page where anyone can change it later without editing and
+re-uploading the ZIP. An override can be reset, which puts the default back.
+
+This is where a `.env` file's non-secret half belongs. A default is visible on
+the dashboard - it shipped inside the ZIP, so pretending otherwise would only
+stop people checking what the app is running with. That makes the rule simple:
+if it has a default, it is not a secret. Keys, tokens and passwords are
+declared with no default and typed in on the server.
+
+One thing `launcher.yaml` cannot cover is a frontend build variable - Vite
+reads `VITE_*` while `npm run build` runs, which is long before anyone is
+asked for a value. Those stay in a `.env` file inside the ZIP, and they are
+baked into the JavaScript the browser downloads, so nothing secret goes there
+either.
 
 **Module-level `app`.** That is what the launcher looks for to work out how to
 start the backend.

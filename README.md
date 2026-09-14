@@ -258,12 +258,30 @@ settings:
   - name: SLACK_WEBHOOK
     description: Optional - alerts are sent here if it is set
     required: false
+  - name: PAGE_SIZE
+    description: Rows per page
+    default: 50
 ```
 
 A setting is required unless it says otherwise. Mark anything the app can run
 without as `required: false`: it is still listed on the app's page, so nobody
 has to read the source to find out it exists, but it never holds the app
 back.
+
+`default:` covers the other case - a setting the app decides for itself rather
+than asks for, which would otherwise live in a `.env` file inside the ZIP. The
+launcher supplies the value, so nobody is asked and the app never waits, and it
+is still on the page to be changed later without re-uploading. Changing one is
+an override; removing the override puts the default back.
+
+Defaults are shown in full on the dashboard, because they travel inside the ZIP
+where anyone can read them anyway. **Never give a default to a key, token or
+password** - declare those with no default, and they stay masked.
+
+Frontend build variables are the exception that stays a file. Vite reads
+`VITE_*` during `npm run build`, which happens before anyone could be asked for
+a value, so those belong in a `.env` in the ZIP - and they end up inside the
+JavaScript the browser downloads, so nothing secret goes in them either.
 
 **An app that declares settings is not started until they are set.** It builds
 as normal and then waits, showing on the dashboard as needing setting up with

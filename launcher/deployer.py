@@ -189,7 +189,12 @@ def run_deploy(deploy_id: int) -> None:
         db.set_declared_settings(
             int(app["id"]),
             [
-                {"name": d.name, "description": d.description, "required": d.required}
+                {
+                    "name": d.name,
+                    "description": d.description,
+                    "required": d.required,
+                    "default": d.default,
+                }
                 for d in spec.settings
             ],
         )
@@ -232,7 +237,7 @@ def run_deploy(deploy_id: int) -> None:
             processes = native.start(
                 name, src, spec, host_port, backend_port,
                 config.LOG_DIR / name, data_dir,
-                db.settings_env(int(app["id"])),
+                db.effective_env(int(app["id"])),
             )
             swapped = True
             log.line(f"[launcher] Started the app (process {processes.front_pid}).")

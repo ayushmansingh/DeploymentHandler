@@ -127,9 +127,18 @@ Both steps time out after 15 minutes. Two apps build at once at most.
 ## 7b. Settings it declared
 
 If `launcher.yaml` lists settings under `settings:` and any **required** one
-has no value yet, **the app is not started.** A setting marked
-`required: false` is listed on the app's page but never holds it back. It is built and ready, and shows on the
-dashboard as waiting, with the names it needs.
+has no value yet, **the app is not started.** It is built and ready, and shows
+on the dashboard as waiting, with the names it needs.
+
+Two kinds never hold it back. A setting marked `required: false` is listed on
+the app's page but is not waited for. A setting with a `default:` is not asked
+for at all: the launcher puts the declared value into the environment, and the
+page shows it as coming from the app. Typing a value for either one overrides
+it and restarts the app; removing that override puts the default back.
+
+Values with a default are rendered in full rather than masked - they arrived
+inside the ZIP, so they are not secrets. Anything declared without a default
+stays masked once saved.
 
 The app's page offers one box per outstanding setting - any number of them -
 and filling the last one starts it. The ZIP does not need uploading again:
@@ -183,7 +192,8 @@ failed and the app's own output is added to the log.
    place). Nothing else survives an update.
 4. Settings come from the environment. Declare their names under `settings:`
    in launcher.yaml; a person types the values on the app's page. The app is
-   not started until they are all set.
+   not started until they are all set. A setting the app decides for itself
+   gets a `default:` and is never asked for; a secret never gets one.
 5. Do not pin package versions that do not exist. Do not ship `node_modules`.
 6. Do not choose a port; the server assigns one.
 7. WebSockets are not proxied.

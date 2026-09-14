@@ -190,13 +190,18 @@ def get_declared_settings(app_id: int, db_path: Path | None = None) -> list[dict
 
 
 def unset_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
-    """Every declared setting that has no value yet, required or not.
+    """Every declared setting still waiting on a person, required or not.
 
     Optional ones are listed so nobody has to read the source to find out they
-    exist; they simply do not hold the app back.
+    exist; they simply do not hold the app back. Settings with a default are
+    not here at all - the app answered its own question, and they are shown
+    with their value instead of asked for.
     """
     have = settings_env(app_id, db_path)
-    return [d for d in get_declared_settings(app_id, db_path) if d.get("name") not in have]
+    return [
+        d for d in get_declared_settings(app_id, db_path)
+        if d.get("name") not in have and not d.get("default")
+    ]
 
 
 def missing_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
@@ -206,6 +211,26 @@ def missing_settings(app_id: int, db_path: Path | None = None) -> list[dict]:
     without the field still behaves as it did.
     """
     return [d for d in unset_settings(app_id, db_path) if d.get("required", True)]
+
+
+def declared_defaults(app_id: int, db_path: Path | None = None) -> dict[str, str]:
+    """The values the app brought with it, before anyone overrode them."""
+    return {
+        d["name"]: str(d["default"])
+        for d in get_declared_settings(app_id, db_path)
+        if d.get("name") and d.get("default")
+    }
+
+
+def effective_env(app_id: int, db_path: Path | None = None) -> dict[str, str]:
+    """What the app actually runs with: its own defaults, then any overrides.
+
+    Stored values are applied last, so typing one into the dashboard replaces
+    the default and deleting it puts the default back.
+    """
+    env = declared_defaults(app_id, db_path)
+    env.update(settings_env(app_id, db_path))
+    return env
 
 
 def set_setting(

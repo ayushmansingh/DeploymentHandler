@@ -97,24 +97,33 @@
 
   {% if settings %}
   <table style="margin-top:14px">
-    <tr><th>Name</th><th>Value</th><th>Last changed</th><th></th></tr>
+    <tr><th>Name</th><th>Value</th><th>Source</th><th></th></tr>
     {% for setting in settings %}
     <tr>
       <td><code>{{ setting['key'] }}</code></td>
-      <td class="muted" style="font-family:ui-monospace,monospace">{{ mask }}</td>
+      <td style="font-family:ui-monospace,monospace{{ ';color:var(--muted)' if setting['secret'] }}">{{ setting['value'] }}</td>
       <td class="muted" style="font-size:12.5px">
-        {{ setting['updated_at'] | datetime }}
-        {% if setting['updated_by'] %}· <span class="who">{{ setting['updated_by'] }}</span>{% endif %}</td>
+        {% if setting['stored'] %}
+          {{ setting['updated_at'] | datetime }}
+          {% if setting['updated_by'] %}· <span class="who">{{ setting['updated_by'] }}</span>{% endif %}
+          {% if setting['overridden'] %}<br>overrides the app's
+            <code>{{ setting['default'] }}</code>{% endif %}
+        {% else %}
+          from the app
+        {% endif %}</td>
       <td style="text-align:right">
+        {% if setting['stored'] %}
         <form method="post" action="/app/{{ app['name'] }}/settings/{{ setting['key'] }}/delete"
-              onsubmit="return confirm('Remove {{ setting['key'] }}?')">
-          <button class="danger">Remove</button></form></td>
+              onsubmit="return confirm('{% if setting['overridden'] %}Put {{ setting['key'] }} back to the app\'s default, {{ setting['default'] }}?{% else %}Remove {{ setting['key'] }}?{% endif %}')">
+          <button class="danger">{{ 'Reset' if setting['overridden'] else 'Remove' }}</button></form>
+        {% endif %}</td>
     </tr>
     {% endfor %}
   </table>
   <p class="muted" style="font-size:12.5px;margin:12px 0 0">
-    Values cannot be read back once saved. To change one, add it again with the
-    same name and the new value will replace it.</p>
+    Values typed in here cannot be read back; to change one, add it again with
+    the same name. Values the app shipped with are shown as they are - they came
+    out of the ZIP, so give a default only to things that are not secret.</p>
   {% else %}
   <p class="muted" style="font-size:13px;margin-top:14px">No settings yet.</p>
   {% endif %}
@@ -125,7 +134,13 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div>
         <label for="key">Name</label>
-        <input type="text" id="key" name="key" placeholder="REDASH_API_KEY" required>
+        <input type="text" id="key" name="key" placeholder="REDASH_API_KEY"
+               list="declared-names" required>
+        {# The names this version declared, so overriding one is a pick
+           rather than a spelling test. #}
+        <datalist id="declared-names">
+          {% for declared in declared_names %}<option value="{{ declared }}">{% endfor %}
+        </datalist>
       </div>
       <div>
         <label for="value">Value</label>

@@ -55,10 +55,19 @@ class SettingSpec:
     `required` is what decides whether the app waits. An optional setting is
     still listed so nobody has to read the source to discover it exists, but
     the app runs without it.
+
+    `default` is for the settings an app leads with rather than asks for -
+    a log level, a page size, a timezone. The launcher supplies the value, so
+    nobody is asked for it and the app never waits. It stays listed and can
+    still be overridden from the dashboard.
+
+    A default travels inside the ZIP, so it is not a secret and is shown in
+    full. Anything that must not be read off a screen has no default.
     """
     name: str
     description: str = ""
     required: bool = True
+    default: str | None = None
 
 
 @dataclass
@@ -202,6 +211,32 @@ def _as_bool(value: object, name: str) -> bool:
     )
 
 
+def _as_default(value: object, name: str) -> str:
+    """A default has to survive being put in the environment, so it is text.
+
+    YAML turns `default: 8` into an int and `default: true` into a bool; both
+    are perfectly reasonable things to write, so they are converted rather
+    than rejected. Booleans keep the spelling YAML was given.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None or isinstance(value, (list, dict)):
+        raise DetectionError(
+            f"In launcher.yaml, the default for {name} should be a single "
+            "value - text, a number, or true/false."
+        )
+    text = str(value).strip()
+    if not text:
+        raise DetectionError(
+            f"In launcher.yaml, the default for {name} is empty. Leave the "
+            "default out and mark it `required: false` if the app can run "
+            "without it."
+        )
+    if len(text) > app_settings.MAX_VALUE_LENGTH:
+        raise DetectionError(f"In launcher.yaml, the default for {name} is too long.")
+    return text
+
+
 def _parse_settings(data: dict) -> list[SettingSpec]:
     """Read the `settings:` list, accepting either names or name/description.
 
@@ -217,12 +252,15 @@ def _parse_settings(data: dict) -> list[SettingSpec]:
     declared: list[SettingSpec] = []
     for entry in raw:
         required = True
+        default = None
         if isinstance(entry, str):
             name, description = entry, ""
         elif isinstance(entry, dict) and "name" in entry:
             name = str(entry["name"])
             description = str(entry.get("description", ""))
             required = _as_bool(entry.get("required", True), name)
+            if "default" in entry:
+                default = _as_default(entry["default"], name)
         else:
             raise DetectionError(
                 "Each item under `settings` should be a name, or a name and a "
@@ -233,7 +271,8 @@ def _parse_settings(data: dict) -> list[SettingSpec]:
         except app_settings.InvalidSetting as exc:
             raise DetectionError(f"In launcher.yaml: {exc}") from exc
         declared.append(SettingSpec(
-            name=name, description=description.strip(), required=required
+            name=name, description=description.strip(), required=required,
+            default=default,
         ))
 
     seen = [d.name for d in declared]
@@ -274,12 +313,20 @@ def _from_manifest(root: Path, data: dict) -> Spec:
             "Your launcher.yaml does not describe a backend or a frontend."
         )
     declared = _parse_settings(data)
-    needed = [d.name for d in declared if d.required]
-    optional = [d.name for d in declared if not d.required]
+    # A default answers the question, so those are neither asked for nor
+    # merely optional - the app already has a value.
+    needed = [d.name for d in declared if d.required and d.default is None]
+    optional = [d.name for d in declared if not d.required and d.default is None]
+    supplied = [d for d in declared if d.default is not None]
     if needed:
         notes.append("Needs settings: " + ", ".join(needed))
     if optional:
         notes.append("Optional settings: " + ", ".join(optional))
+    if supplied:
+        notes.append(
+            "Settings the app brings its own values for: "
+            + ", ".join(f"{d.name}={d.default}" for d in supplied)
+        )
     return Spec(
         kind=_kind(backend, frontend), backend=backend, frontend=frontend,
         notes=notes, settings=declared,

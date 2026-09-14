@@ -725,3 +725,83 @@ def test_removing_an_optional_setting_only_restarts(client, monkeypatch):
 
     assert restarted == ["sales-dashboard"]
     assert database.get_app_by_name("sales-dashboard")["status"] == "live"
+
+
+def test_a_defaulted_setting_shows_its_value_instead_of_asking(client):
+    from launcher import db as database
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_declared_settings(int(row["id"]), [
+        {"name": "PAGE_SIZE", "description": "Rows per page",
+         "required": True, "default": "50"},
+    ])
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    page = " ".join(client.get("/app/sales-dashboard").text.split())
+    assert "from the app" in page
+    assert ">50<" in page, "a value that shipped in the ZIP is not a secret"
+    assert 'name="setting__PAGE_SIZE"' not in page, "nobody should be asked for it"
+    assert "waiting for" not in page
+
+
+def test_a_secret_stays_masked_while_a_default_does_not(client):
+    from launcher import db as database
+    from launcher import settings as app_settings
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_declared_settings(int(row["id"]), [
+        {"name": "PAGE_SIZE", "description": "", "required": True, "default": "50"},
+        {"name": "REDASH_API_KEY", "description": "", "required": True, "default": None},
+    ])
+    database.set_setting(int(row["id"]), "REDASH_API_KEY", "super-secret-token")
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    page = client.get("/app/sales-dashboard").text
+    assert "super-secret-token" not in page
+    assert app_settings.MASK in page
+    assert ">50<" in " ".join(page.split())
+
+
+def test_overriding_a_default_is_shown_as_an_override(client, monkeypatch):
+    from launcher import db as database, supervisor
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.set_declared_settings(int(row["id"]), [
+        {"name": "PAGE_SIZE", "description": "", "required": True, "default": "50"},
+    ])
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": None)
+
+    client.post(
+        "/app/sales-dashboard/settings",
+        data={"key": "PAGE_SIZE", "value": "200", "updated_by": "Priya"},
+        follow_redirects=False,
+    )
+
+    page = " ".join(client.get("/app/sales-dashboard").text.split())
+    assert ">200<" in page
+    assert "overrides the app's" in page
+    assert "Reset" in page, "removing an override restores the default, not nothing"
+
+
+def test_resetting_an_override_restores_the_default_without_stopping_the_app(
+    client, monkeypatch
+):
+    from launcher import db as database, supervisor
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    app_id = int(row["id"])
+    database.set_declared_settings(app_id, [
+        {"name": "PAGE_SIZE", "description": "", "required": True, "default": "50"},
+    ])
+    database.set_setting(app_id, "PAGE_SIZE", "200")
+    database.update_app(app_id, status="live", host_port=24817)
+
+    restarted = []
+    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+
+    client.post("/app/sales-dashboard/settings/PAGE_SIZE/delete", follow_redirects=False)
+
+    assert restarted == ["sales-dashboard"]
+    assert database.get_app_by_name("sales-dashboard")["status"] == "live"
+    assert database.effective_env(app_id)["PAGE_SIZE"] == "50"
