@@ -308,3 +308,49 @@ def test_a_default_never_displaces_the_launchers_own_variables(data_dir):
         db.effective_env(app_id), {"PORT": "31234", "APP_DATA_DIR": "/data"}
     )
     assert env["PORT"] == "31234"
+
+
+# ---------------------------------------------------------------------------
+# The hold has to survive every route into launch(), not just the deploy
+# ---------------------------------------------------------------------------
+
+def test_pressing_start_cannot_bypass_the_hold(data_dir, monkeypatch, tmp_path):
+    """Start used to call launch() straight through, so an app waiting for six
+    settings came up serving with all six empty - reporting itself live while
+    being exactly as unusable as the hold exists to prevent."""
+    from launcher import config, native, supervisor
+
+    db.init()
+    app_id = db.create_app("query-allocation-dashboard")
+    db.set_declared_settings(app_id, [
+        {"name": "REDASH_QUERY_API_KEY", "description": "", "required": True},
+        {"name": "REDASH_API_ROOT", "description": "", "required": True},
+    ])
+    db.update_app(app_id, status="needs_setup")
+
+    src = config.SRC_DIR / "query-allocation-dashboard"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    (src / "main.py").write_text(
+        "from fastapi import FastAPI\napp = FastAPI()\n", encoding="utf-8"
+    )
+
+    started = []
+
+    def fake_start(*args, **kwargs):
+        started.append(args)
+        # The real one hands back the pids it spawned; returning None here
+        # would fail for a reason that has nothing to do with the hold.
+        return native.Processes(front_pid=4242, backend_pid=4243)
+
+    monkeypatch.setattr(native, "start", fake_start)
+
+    assert supervisor.launch(db.get_app(app_id), reason="Started from the dashboard.") is False
+    assert started == [], "nothing may be started while a declared setting is unset"
+    assert db.get_app(app_id)["status"] == "needs_setup"
+
+    # Supplying them is what opens the gate.
+    db.set_setting(app_id, "REDASH_QUERY_API_KEY", "k")
+    db.set_setting(app_id, "REDASH_API_ROOT", "https://redash.example")
+    assert supervisor.launch(db.get_app(app_id)) is True
+    assert started, "with its settings set it starts normally"

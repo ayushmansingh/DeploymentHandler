@@ -491,7 +491,7 @@ def save_setting(name: str, key: str = Form(...), value: str = Form(...),
         )
 
     db.set_setting(int(row["id"]), clean_key, clean_value, updated_by.strip())
-    started = _apply_settings_change(db.get_app_by_name(name))
+    started = _apply_settings_change(db.get_app_by_name(name), updated_by.strip())
     return RedirectResponse(
         f"/app/{name}?setting_saved={quote(clean_key)}"
         + ("&started=1" if started else ""),
@@ -534,7 +534,7 @@ async def fill_settings(request: Request, name: str):
             status_code=303,
         )
 
-    started = _apply_settings_change(db.get_app_by_name(name))
+    started = _apply_settings_change(db.get_app_by_name(name), updated_by)
     return RedirectResponse(
         f"/app/{name}?setting_saved={quote(', '.join(saved))}"
         + ("&started=1" if started else ""),
@@ -552,18 +552,42 @@ def remove_setting(name: str, key: str):
     )
 
 
-def _settle_held_deploy(app_id: int) -> None:
+def _settle_held_deploy(app_id: int, by: str = "") -> None:
     """Close off the deploy that was waiting, now that the app has started.
 
     Left alone it stays "needs_setup" with its old message, and the page keeps
     saying the app is waiting for something it already has.
+
+    The log is closed off too. It is written once, while the deploy runs, so a
+    held one ended on "Waiting for settings" and stayed that way for good -
+    the app could be started and serving while the last thing written about it
+    still said it was waiting. Anyone who opened the log to check on it read a
+    stale sentence and reasonably concluded the app had never come up.
     """
     recent = db.list_deploys(app_id, limit=1)
-    if recent and recent[0]["status"] == "needs_setup":
-        db.finish_deploy(int(recent[0]["id"]), "live", None)
+    if not recent or recent[0]["status"] != "needs_setup":
+        return
+    db.finish_deploy(int(recent[0]["id"]), "live", None)
+
+    row = db.get_app(app_id)
+    path = recent[0]["log_path"]
+    if row is None or not path:
+        return
+    who = f" by {by}" if by else ""
+    url = _app_url(row)
+    try:
+        with open(path, "a", encoding="utf-8", errors="replace") as log:
+            log.write(f"\n[launcher] Settings supplied{who}. Starting the app...\n")
+            if url:
+                log.write(f"[launcher] SUCCESS. Your app is live at {url}\n")
+            else:
+                log.write("[launcher] The app was started.\n")
+    except OSError:
+        # The log is a convenience; losing it must not undo a good start.
+        pass
 
 
-def _apply_settings_change(row) -> bool:
+def _apply_settings_change(row, by: str = "") -> bool:
     """Bring the app into line with its settings. True if it started.
 
     Three cases: it was waiting to be configured and now can run; it is
@@ -580,8 +604,11 @@ def _apply_settings_change(row) -> bool:
         if missing:
             return False
         if config.RUNTIME == "native":
-            supervisor.launch(row, reason="Starting now that its settings are set.")
-            _settle_held_deploy(app_id)
+            # Whether it really started decides what the page says next, so
+            # the answer is not thrown away.
+            if not supervisor.launch(row, reason="Starting now that its settings are set."):
+                return False
+            _settle_held_deploy(app_id, by)
             return True
         return False
 

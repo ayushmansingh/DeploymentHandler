@@ -55,6 +55,17 @@ def launch(app_row, reason: str = "") -> bool:
         db.update_app(int(app_row["id"]), status="failed")
         return False
 
+    # The hold has to survive every route into here, not just the deploy that
+    # set it. Pressing Start on an app that is waiting for its settings used
+    # to launch it anyway: it came up, reported itself live, and served with
+    # every declared setting empty - the exact state the hold exists to stop.
+    missing = db.missing_settings(int(app_row["id"]))
+    if missing:
+        names = ", ".join(d["name"] for d in missing)
+        _log(name, f"Cannot start: still waiting for {names}.")
+        db.update_app(int(app_row["id"]), status="needs_setup")
+        return False
+
     # Clear out anything still holding the ports before rebinding them.
     stop(app_row)
 

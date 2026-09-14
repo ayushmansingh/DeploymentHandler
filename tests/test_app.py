@@ -9,6 +9,19 @@ from launcher import app as web
 from launcher import db, deployer, runtime
 
 
+def launches_into(record, field="name", ok=True):
+    """Stand-in for supervisor.launch, which returns True when it started.
+
+    Returning None here - as these mocks used to - made every caller look as
+    though it had failed to start, and hid the fact that one caller was
+    ignoring the answer altogether.
+    """
+    def launch(row, reason=""):
+        record.append(reason if field == "reason" else row[field])
+        return ok
+    return launch
+
+
 @pytest.fixture
 def client(data_dir, monkeypatch):
     """A test client whose deploys are recorded rather than executed."""
@@ -352,7 +365,7 @@ def test_changing_a_setting_restarts_a_running_app(client, monkeypatch):
     database.update_app(int(row["id"]), status="live", host_port=24817)
 
     restarted = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+    monkeypatch.setattr(supervisor, "launch", launches_into(restarted))
 
     client.post(
         "/app/sales-dashboard/settings",
@@ -410,7 +423,7 @@ def test_supplying_the_last_setting_starts_it(client, monkeypatch):
     database.update_app(int(row["id"]), status="needs_setup")
 
     started = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": started.append(r["name"]))
+    monkeypatch.setattr(supervisor, "launch", launches_into(started))
 
     client.post(
         "/app/sales-dashboard/settings",
@@ -467,7 +480,7 @@ def test_removing_an_undeclared_setting_only_restarts(client, monkeypatch):
     database.update_app(int(row["id"]), status="live", host_port=24817)
 
     restarted = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+    monkeypatch.setattr(supervisor, "launch", launches_into(restarted))
 
     client.post("/app/sales-dashboard/settings/EXTRA/delete", follow_redirects=False)
 
@@ -494,7 +507,7 @@ def test_the_waiting_message_clears_once_the_app_starts(client, monkeypatch):
     database.finish_deploy(deploy_id, "needs_setup", "needs REDASH_API_KEY")
     database.update_app(int(row["id"]), status="needs_setup")
 
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": None)
+    monkeypatch.setattr(supervisor, "launch", launches_into([]))
     client.post(
         "/app/sales-dashboard/settings",
         data={"key": "REDASH_API_KEY", "value": "secret"},
@@ -517,7 +530,7 @@ def test_a_new_version_waiting_on_a_setting_leaves_the_old_one_serving(client, m
     database.finish_deploy(deploy_id, "needs_setup", "needs SLACK_WEBHOOK")
 
     launched = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": launched.append(reason))
+    monkeypatch.setattr(supervisor, "launch", launches_into(launched, "reason"))
 
     # Still live while it waits.
     assert database.get_app_by_name("sales-dashboard")["status"] == "live"
@@ -573,7 +586,7 @@ def test_several_settings_can_be_filled_in_one_go(client, monkeypatch):
     database.update_app(int(row["id"]), status="needs_setup")
 
     started = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": started.append(r["name"]))
+    monkeypatch.setattr(supervisor, "launch", launches_into(started))
 
     response = client.post(
         "/app/sales-dashboard/settings/fill",
@@ -683,7 +696,7 @@ def test_an_app_starts_with_an_optional_setting_unset(client, monkeypatch):
     database.update_app(int(row["id"]), status="needs_setup")
 
     started = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": started.append(r["name"]))
+    monkeypatch.setattr(supervisor, "launch", launches_into(started))
 
     client.post(
         "/app/sales-dashboard/settings/fill",
@@ -719,7 +732,7 @@ def test_removing_an_optional_setting_only_restarts(client, monkeypatch):
     database.update_app(int(row["id"]), status="live", host_port=24817)
 
     restarted = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+    monkeypatch.setattr(supervisor, "launch", launches_into(restarted))
 
     client.post("/app/sales-dashboard/settings/SLACK_WEBHOOK/delete", follow_redirects=False)
 
@@ -770,7 +783,7 @@ def test_overriding_a_default_is_shown_as_an_override(client, monkeypatch):
         {"name": "PAGE_SIZE", "description": "", "required": True, "default": "50"},
     ])
     database.update_app(int(row["id"]), status="live", host_port=24817)
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": None)
+    monkeypatch.setattr(supervisor, "launch", launches_into([]))
 
     client.post(
         "/app/sales-dashboard/settings",
@@ -798,10 +811,51 @@ def test_resetting_an_override_restores_the_default_without_stopping_the_app(
     database.update_app(app_id, status="live", host_port=24817)
 
     restarted = []
-    monkeypatch.setattr(supervisor, "launch", lambda r, reason="": restarted.append(r["name"]))
+    monkeypatch.setattr(supervisor, "launch", launches_into(restarted))
 
     client.post("/app/sales-dashboard/settings/PAGE_SIZE/delete", follow_redirects=False)
 
     assert restarted == ["sales-dashboard"]
     assert database.get_app_by_name("sales-dashboard")["status"] == "live"
     assert database.effective_env(app_id)["PAGE_SIZE"] == "50"
+
+
+def test_the_log_does_not_end_on_a_sentence_that_stopped_being_true(client, monkeypatch):
+    """A held deploy's log ended on "Waiting for settings" and stayed that way
+    once the app started, so anyone opening the log to check on a running app
+    read that it was still waiting and concluded it had never come up."""
+    from pathlib import Path
+
+    from launcher import db as database, supervisor
+    upload(client, name="query-allocation-dashboard")
+    row = database.get_app_by_name("query-allocation-dashboard")
+    app_id = int(row["id"])
+    database.set_declared_settings(app_id, [
+        {"name": "REDASH_API_ROOT", "description": "", "required": True},
+    ])
+    database.update_app(app_id, status="needs_setup", host_port=24817)
+
+    deploy = database.list_deploys(app_id, limit=1)[0]
+    log_path = Path(deploy["log_path"])
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        "[launcher] Built successfully. Waiting for settings: REDASH_API_ROOT\n"
+        "[launcher] Set them on this app's page and it will start.\n",
+        encoding="utf-8",
+    )
+    database.finish_deploy(int(deploy["id"]), "needs_setup", "needs settings")
+
+    monkeypatch.setattr(supervisor, "launch", launches_into([]))
+    client.post(
+        "/app/query-allocation-dashboard/settings/fill",
+        data={"setting__REDASH_API_ROOT": "https://redash.example", "updated_by": "Priya"},
+        follow_redirects=False,
+    )
+
+    log = client.get("/app/query-allocation-dashboard/log").text
+    assert "Waiting for settings" in log, "the history stays; it did happen"
+    assert "Settings supplied by Priya" in log
+    assert "SUCCESS" in log
+    assert log.rstrip().endswith("http://localhost:24817"), (
+        "the last line has to describe the state the app is actually in"
+    )

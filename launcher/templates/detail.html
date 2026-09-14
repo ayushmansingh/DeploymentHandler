@@ -219,8 +219,17 @@
 <div class="card">
   <div class="row">
     <form method="post" action="/app/{{ app['name'] }}/stop"><button>Stop</button></form>
-    <form method="post" action="/app/{{ app['name'] }}/start"><button>Start</button></form>
-    <span class="muted">processes: {{ container_state }}</span>
+    {# Start is refused while settings are outstanding, so it is not offered
+       here either - an unusable button that reports an error is worse than
+       saying plainly what the app is waiting for. #}
+    <form method="post" action="/app/{{ app['name'] }}/start">
+      <button {% if missing_settings %}disabled
+        title="Waiting for {{ missing_settings | length }} setting{{ 's' if missing_settings | length != 1 }}"
+        {% endif %}>Start</button></form>
+    <span class="muted">processes: {{ container_state }}{%
+      if missing_settings %} - waiting for
+      {{ missing_settings | length }} setting{{ 's' if missing_settings | length != 1 }}{%
+      endif %}</span>
     <form method="post" action="/app/{{ app['name'] }}/delete" style="margin-left:auto"
           onsubmit="return confirm('Delete {{ app['name'] }}, its versions and its saved files?')">
       <button class="danger">Delete app</button></form>
