@@ -4,7 +4,8 @@
   <p class="sub">
     <span class="pill {{ app['status'] }}">{{ app['status'] }}</span>
     {% if app['kind'] != 'unknown' %}<span class="muted">&nbsp;{{ app['kind'] }}</span>{% endif %}
-    {% if app['owner'] %}<span class="muted">&nbsp;· uploaded by {{ app['owner'] }}</span>{% endif %}
+    {% if app['owner'] %}<span class="muted">&nbsp;· uploaded by
+      <span class="who">{{ app['owner'] }}</span></span>{% endif %}
   </p>
 
   {% if current and current['status'] in ('queued', 'building') %}

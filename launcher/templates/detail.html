@@ -104,7 +104,7 @@
       <td class="muted" style="font-family:ui-monospace,monospace">{{ mask }}</td>
       <td class="muted" style="font-size:12.5px">
         {{ setting['updated_at'] | datetime }}
-        {% if setting['updated_by'] %}· {{ setting['updated_by'] }}{% endif %}</td>
+        {% if setting['updated_by'] %}· <span class="who">{{ setting['updated_by'] }}</span>{% endif %}</td>
       <td style="text-align:right">
         <form method="post" action="/app/{{ app['name'] }}/settings/{{ setting['key'] }}/delete"
               onsubmit="return confirm('Remove {{ setting['key'] }}?')">
@@ -177,7 +177,8 @@
   {% for d in deploys %}
   <tr>
     <td><a href="/app/{{ app['name'] }}?deploy={{ d['id'] }}">{{ d['created_at'] | datetime }}</a></td>
-    <td class="muted">{{ d['uploaded_by'] or '-' }}</td>
+    <td>{% if d['uploaded_by'] %}<span class="who">{{ d['uploaded_by'] }}</span>
+        {% else %}<span class="muted">-</span>{% endif %}</td>
     <td><span class="pill {{ d['status'] }}">{{ d['status'] }}</span></td>
     <td style="text-align:right">
       <form method="post" action="/app/{{ app['name'] }}/redeploy/{{ d['id'] }}">

@@ -121,7 +121,7 @@
 
       <div class="app-meta">
         {% if app.usage and app.usage.uptime and app.status == 'live' %}up {{ app.usage.uptime }} · {% endif %}
-        {% if app.owner %}{{ app.owner }}{% else %}unknown{% endif %}
+        {% if app.owner %}<span class="who">{{ app.owner }}</span>{% else %}unknown{% endif %}
         {% if app.deployed_at %} · {{ app.deployed_at | datetime }}{% endif %}
       </div>
 
