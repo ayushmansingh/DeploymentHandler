@@ -111,7 +111,7 @@ def _guess_start_command(backend_dir: Path) -> str:
         f = backend_dir / entry
         if not f.is_file():
             continue
-        text = f.read_text(errors="ignore")
+        text = f.read_text(encoding="utf-8", errors="ignore")
         module = entry[:-3]
 
         fastapi_var = re.search(r"^(\w+)\s*=\s*FastAPI\(", text, re.MULTILINE)
@@ -172,7 +172,9 @@ def _detect_frontend(root: Path) -> FrontendSpec | None:
         return None
 
     try:
-        pkg = json.loads((fe_dir / "package.json").read_text(errors="ignore"))
+        pkg = json.loads(
+            (fe_dir / "package.json").read_text(encoding="utf-8", errors="ignore")
+        )
     except json.JSONDecodeError as exc:
         raise DetectionError(
             f"Your package.json is not valid JSON ({exc.msg} on line {exc.lineno}). "
@@ -344,7 +346,9 @@ def detect(root: Path) -> Spec:
         manifest = root / manifest_name
         if manifest.is_file():
             try:
-                data = yaml.safe_load(manifest.read_text(errors="ignore")) or {}
+                data = yaml.safe_load(
+                    manifest.read_text(encoding="utf-8", errors="ignore")
+                ) or {}
             except yaml.YAMLError as exc:
                 raise DetectionError(f"Your {manifest_name} could not be read: {exc}") from exc
             if not isinstance(data, dict):

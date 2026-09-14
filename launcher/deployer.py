@@ -51,7 +51,7 @@ class _Log:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        path.write_text("")
+        path.write_text("", encoding="utf-8")
 
     def write(self, text: str) -> None:
         with self._lock, open(self.path, "a", encoding="utf-8", errors="replace") as fh:
@@ -62,7 +62,7 @@ class _Log:
 
     def read(self) -> str:
         try:
-            return self.path.read_text(errors="replace")
+            return self.path.read_text(encoding="utf-8", errors="replace")
         except FileNotFoundError:
             return ""
 
@@ -76,7 +76,9 @@ def _scan_for_localhost(root: Path, frontend_path: str) -> errors.Diagnosis | No
             continue
         if _SKIPPED_NAMES.match(path.name):
             continue
-        found = errors.check_localhost_leak(path.read_text(errors="ignore"))
+        found = errors.check_localhost_leak(
+            path.read_text(encoding="utf-8", errors="ignore")
+        )
         if found:
             rel = path.relative_to(root).as_posix()
             found.detail = f"{found.detail} in {rel}"
@@ -392,7 +394,9 @@ def _runtime_logs(name: str, app_row) -> str:
     """The app's own output, wherever this runtime keeps it."""
     if config.RUNTIME == "native":
         try:
-            text = (config.LOG_DIR / name / "runtime.log").read_text(errors="replace")
+            text = (config.LOG_DIR / name / "runtime.log").read_text(
+                encoding="utf-8", errors="replace"
+            )
         except FileNotFoundError:
             return ""
         return "\n".join(text.splitlines()[-100:]) + "\n"

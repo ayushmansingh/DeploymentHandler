@@ -35,7 +35,7 @@ def _stream(cmd: list[str], sink: LogSink, timeout: int) -> int:
     sink(f"$ {' '.join(cmd)}\n")
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1,
+        bufsize=1, text=True, encoding="utf-8", errors="replace",
     )
     try:
         assert proc.stdout is not None

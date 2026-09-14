@@ -85,7 +85,9 @@ def record_launch_command() -> None:
         "cwd": os.getcwd(),
         "env": {k: v for k, v in os.environ.items() if k.startswith("LAUNCHER_")},
     }
-    (config.DATA_DIR / LAUNCH_RECORD).write_text(json.dumps(record, indent=2))
+    (config.DATA_DIR / LAUNCH_RECORD).write_text(
+        json.dumps(record, indent=2), encoding="utf-8"
+    )
 
 
 def stop_self(delay: float = 1.5) -> None:
@@ -151,8 +153,12 @@ def stage(zip_path: Path) -> Staged:
 
     _check_it_compiles(staging)
 
-    current = (INSTALL_DIR / "requirements.txt").read_text(errors="ignore")
-    incoming = (staging / "requirements.txt").read_text(errors="ignore")
+    current = (INSTALL_DIR / "requirements.txt").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    incoming = (staging / "requirements.txt").read_text(
+        encoding="utf-8", errors="ignore"
+    )
     return Staged(root=staging, requirements_changed=current.strip() != incoming.strip())
 
 

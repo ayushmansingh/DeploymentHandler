@@ -426,7 +426,9 @@ def app_log(name: str, deploy: int | None = None):
     if target is None or not target["log_path"]:
         return PlainTextResponse("No log yet.")
     try:
-        return PlainTextResponse(Path(target["log_path"]).read_text(errors="replace"))
+        return PlainTextResponse(
+            Path(target["log_path"]).read_text(encoding="utf-8", errors="replace")
+        )
     except FileNotFoundError:
         return PlainTextResponse("No log yet.")
 
@@ -460,7 +462,9 @@ def repair_prompt(name: str, deploy: int | None = None):
     log_text = ""
     if target["log_path"]:
         try:
-            log_text = Path(target["log_path"]).read_text(errors="replace")
+            log_text = Path(target["log_path"]).read_text(
+                encoding="utf-8", errors="replace"
+            )
         except FileNotFoundError:
             pass
     diagnosis = errors.diagnose(log_text)
@@ -704,7 +708,9 @@ def delete_app(name: str):
 
 def _update_log() -> str:
     try:
-        text = (config.DATA_DIR / "updates" / "update.log").read_text(errors="replace")
+        text = (config.DATA_DIR / "updates" / "update.log").read_text(
+            encoding="utf-8", errors="replace"
+        )
     except FileNotFoundError:
         return ""
     return "\n".join(text.splitlines()[-40:])

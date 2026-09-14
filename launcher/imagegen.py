@@ -188,7 +188,9 @@ def write_build_context(
     """Drop the generated build files into the extracted project directory."""
     hidden = root / ".launcher"
     hidden.mkdir(exist_ok=True)
-    (hidden / "nginx.conf").write_text(_nginx_conf(spec))
-    (hidden / "start.sh").write_text(_start_sh(spec))
-    (root / "Dockerfile").write_text(_dockerfile(spec, python_version, node_version))
-    (root / ".dockerignore").write_text(_dockerignore())
+    (hidden / "nginx.conf").write_text(_nginx_conf(spec), encoding="utf-8")
+    (hidden / "start.sh").write_text(_start_sh(spec), encoding="utf-8")
+    (root / "Dockerfile").write_text(
+        _dockerfile(spec, python_version, node_version), encoding="utf-8"
+    )
+    (root / ".dockerignore").write_text(_dockerignore(), encoding="utf-8")

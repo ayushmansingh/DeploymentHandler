@@ -52,6 +52,9 @@ class Processes:
 # Toolchain
 # ---------------------------------------------------------------------------
 
+LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json")
+
+
 def npm_command() -> str:
     """Resolve npm, which is a .cmd shim on Windows and not directly callable."""
     if config.NPM_COMMAND:
@@ -96,7 +99,12 @@ def _stream(cmd: list[str], cwd: Path, sink: LogSink, timeout: int,
     try:
         proc = subprocess.Popen(
             cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, env=env,
+            bufsize=1, env=env,
+            # npm, vite and pip all write UTF-8. Left to itself Python would
+            # decode with the machine's locale codec - cp1252 on a Windows
+            # server - and every tick and box-drawing character in a build log
+            # would arrive as mojibake.
+            text=True, encoding="utf-8", errors="replace",
         )
     except OSError as exc:
         sink(f"[launcher] Could not run {cmd[0]}: {exc}\n")
@@ -144,13 +152,26 @@ def prepare(src: Path, spec: Spec, sink: LogSink) -> int:
     if spec.frontend:
         npm = npm_command()
         fe = src / spec.frontend.path
-        sink("[launcher] Installing frontend packages...\n")
-        code = _stream([npm, "ci", "--no-audit", "--no-fund"], fe, sink, timeout)
-        if code != 0:
-            sink("[launcher] npm ci did not work, trying npm install...\n")
+
+        # `npm ci` needs a lockfile and refuses loudly without one, printing
+        # its entire usage page - forty lines with "npm error" down the side -
+        # before we fall back and succeed anyway. A ZIP built by an AI has no
+        # lockfile, so that was the normal case, and every successful deploy
+        # looked like a failed one. Ask the directory instead of asking npm.
+        if any((fe / n).is_file() for n in LOCKFILES):
+            sink("[launcher] Installing frontend packages from the lockfile...\n")
+            install = [npm, "ci", "--no-audit", "--no-fund"]
+        else:
+            sink("[launcher] Installing frontend packages...\n")
+            install = [npm, "install", "--no-audit", "--no-fund"]
+
+        code = _stream(install, fe, sink, timeout)
+        if code != 0 and install[1] == "ci":
+            # A lockfile that disagrees with package.json: still recoverable.
+            sink("[launcher] The lockfile did not match. Installing without it...\n")
             code = _stream([npm, "install", "--no-audit", "--no-fund"], fe, sink, timeout)
-            if code != 0:
-                return code
+        if code != 0:
+            return code
 
         sink("[launcher] Building the frontend...\n")
         code = _stream([npm, "run", "build"], fe, sink, timeout)
