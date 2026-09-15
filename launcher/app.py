@@ -433,6 +433,31 @@ def app_log(name: str, deploy: int | None = None):
         return PlainTextResponse("No log yet.")
 
 
+@app.get("/app/{name}/runtime-log", response_class=PlainTextResponse)
+def app_runtime_log(name: str, lines: int = 400):
+    """What the app itself printed, as opposed to what building it printed.
+
+    Until this existed the only way to see why a backend had died was to open
+    a file on the server's disk, which is exactly the thing nobody on the team
+    can be asked to do. A build log that ends in SUCCESS and a backend that is
+    not responding are not a contradiction: the app is started, and then it is
+    on its own.
+    """
+    _require_app(name)
+    path = config.LOG_DIR / name / "runtime.log"
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return PlainTextResponse(
+            "Nothing yet. This fills up once the app has been started."
+        )
+    if not text.strip():
+        return PlainTextResponse("The app has not printed anything yet.")
+    # The tail is the part that explains a crash; the rest is startup noise.
+    kept = text.splitlines()[-max(lines, 1):]
+    return PlainTextResponse("\n".join(kept))
+
+
 @app.get("/app/{name}/status")
 def app_status(name: str, deploy: int | None = None):
     row = _require_app(name)

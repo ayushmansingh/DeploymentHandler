@@ -10,6 +10,7 @@ deploy log file, which the dashboard streams live.
 from __future__ import annotations
 
 import re
+import socket
 import threading
 import time
 import urllib.error
@@ -84,6 +85,31 @@ def _scan_for_localhost(root: Path, frontend_path: str) -> errors.Diagnosis | No
             found.detail = f"{found.detail} in {rel}"
             return found
     return None
+
+
+def _verify_backend(port: int, log: _Log) -> bool:
+    """Confirm the app's own server bound its port, not just the front server.
+
+    The front server is ours: it starts, serves the built frontend and answers
+    on `/` whether or not the app behind it ever came up. So an app whose
+    backend died at import still passed the check, was recorded live, and the
+    first person to open it got "This app's backend is not responding" with a
+    build log that said SUCCESS. A socket that accepts a connection is the
+    cheapest honest proof the app is actually listening, and it asks nothing
+    of the app - no health route to implement, no convention to follow.
+    """
+    deadline = time.time() + VERIFY_TIMEOUT_SECONDS
+    last_error = ""
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=3):
+                log.line("[launcher] The app's backend is listening.")
+                return True
+        except OSError as exc:
+            last_error = str(exc)
+            time.sleep(1.5)
+    log.line(f"[launcher] The app's backend never listened on port {port}: {last_error}")
+    return False
 
 
 def _verify_http(port: int, log: _Log) -> bool:
@@ -279,7 +305,15 @@ def run_deploy(deploy_id: int) -> None:
             )
 
         # 6. Prove it actually serves traffic before calling it a success.
-        if not _verify_http(host_port, log):
+        #
+        # Both halves are checked. The front server answering only proves our
+        # own process is up; the app's backend is the part that can fail on
+        # its own and used to do so silently.
+        backend_ok = (
+            _verify_backend(backend_port, log)
+            if config.RUNTIME == "native" and backend_port else True
+        )
+        if not backend_ok or not _verify_http(host_port, log):
             log.write(_runtime_logs(name, db.get_app(int(app["id"]))))
             diagnosis = errors.diagnose(log.read())
             diagnosis.summary = (

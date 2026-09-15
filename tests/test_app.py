@@ -859,3 +859,31 @@ def test_the_log_does_not_end_on_a_sentence_that_stopped_being_true(client, monk
     assert log.rstrip().endswith("http://localhost:24817"), (
         "the last line has to describe the state the app is actually in"
     )
+
+
+def test_the_app_own_log_is_readable_from_the_page(client):
+    """A backend that dies after starting leaves its reason only in
+    runtime.log, which was readable nowhere but the server's own disk."""
+    from launcher import config
+    upload(client, name="sales-dashboard")
+
+    log_dir = config.LOG_DIR / "sales-dashboard"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "runtime.log").write_text(
+        "Traceback (most recent call last):\n"
+        "  File \"main.py\", line 3, in <module>\n"
+        "ModuleNotFoundError: No module named 'pandas'\n",
+        encoding="utf-8",
+    )
+
+    body = client.get("/app/sales-dashboard/runtime-log").text
+    assert "ModuleNotFoundError" in body
+
+    page = client.get("/app/sales-dashboard").text
+    assert "/runtime-log" in page, "the page has to offer it, not just the route"
+
+
+def test_the_app_own_log_says_so_when_there_is_nothing_yet(client):
+    upload(client, name="sales-dashboard")
+    body = client.get("/app/sales-dashboard/runtime-log").text
+    assert "Nothing yet" in body
