@@ -60,3 +60,20 @@ def test_docker_outage_is_blamed_on_the_server_not_the_upload():
     d = errors.diagnose(log)
     assert "not running" in d.summary
     assert "not with your ZIP" in (d.hint or "")
+
+
+def test_a_missing_windows_time_zone_database_is_explained():
+    """zoneinfo reads the system IANA database, which Windows does not have.
+    An app written on a Mac dies at import on the server, before it binds its
+    port, and the traceback names tzdata only as a second ModuleNotFoundError
+    further up - easy to read past."""
+    log = (
+        '  File "backend\\\\refresh_pipeline.py", line 31, in <module>\n'
+        '    IST = ZoneInfo("Asia/Kolkata")\n'
+        "zoneinfo._common.ZoneInfoNotFoundError: "
+        "'No time zone found with key Asia/Kolkata'\n"
+    )
+    result = errors.diagnose(log)
+
+    assert "Asia/Kolkata" in result.summary
+    assert "tzdata" in (result.hint or ""), "the cure has to be named"

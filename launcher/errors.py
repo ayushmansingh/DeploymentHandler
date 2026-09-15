@@ -30,6 +30,16 @@ _PATTERNS: list[tuple[str, str, str | None]] = [
         "server administrator.",
     ),
     (
+        # Windows ships no IANA time zone database. zoneinfo reads the system
+        # one on Linux and macOS, so an app that works on the machine it was
+        # written on dies at import here, before it ever binds its port.
+        r"No time zone found with key ([\w/+\-]+)",
+        "Your app asks Windows for the time zone {0}, and Windows has no time "
+        "zone database for Python to read.",
+        "Add tzdata to requirements.txt. It is the package that carries the "
+        "time zone database on Windows, and nothing else has to change.",
+    ),
+    (
         r"No matching distribution found for ([\w\-\[\].]+)",
         "One of your Python packages does not exist: {0}.",
         "AI assistants sometimes invent package names or versions. Ask for a "
