@@ -85,6 +85,12 @@ MAX_UPLOAD_BYTES = _env_int("LAUNCHER_MAX_UPLOAD_MB", 200) * 1024 * 1024
 MAX_EXTRACTED_BYTES = _env_int("LAUNCHER_MAX_EXTRACTED_MB", 1024) * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = _env_int("LAUNCHER_MAX_ENTRIES", 20000)
 
+# An app writes to its runtime log for as long as it runs, and uvicorn logs a
+# line per request - a dashboard that polls every couple of seconds produces
+# tens of megabytes a month. The log is rolled over once past this, so a
+# long-lived app cannot quietly fill the disk.
+RUNTIME_LOG_MAX_BYTES = _env_int("LAUNCHER_RUNTIME_LOG_MB", 16) * 1024 * 1024
+
 # How many uploaded versions to keep per app before pruning the oldest.
 KEEP_VERSIONS = _env_int("LAUNCHER_KEEP_VERSIONS", 5)
 

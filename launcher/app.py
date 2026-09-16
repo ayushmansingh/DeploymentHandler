@@ -445,17 +445,20 @@ def app_runtime_log(name: str, lines: int = 400):
     """
     _require_app(name)
     path = config.LOG_DIR / name / "runtime.log"
+    wanted = min(max(lines, 1), 5000)
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        # Only the tail is read off disk. An app that has been up for weeks has
+        # a log far larger than anything worth rendering, and reading all of it
+        # to keep the last few hundred lines is how a log viewer takes a server
+        # down rather than helping debug one.
+        text = files.tail_text(path, wanted)
     except FileNotFoundError:
         return PlainTextResponse(
             "Nothing yet. This fills up once the app has been started."
         )
     if not text.strip():
         return PlainTextResponse("The app has not printed anything yet.")
-    # The tail is the part that explains a crash; the rest is startup noise.
-    kept = text.splitlines()[-max(lines, 1):]
-    return PlainTextResponse("\n".join(kept))
+    return PlainTextResponse(text)
 
 
 @app.get("/app/{name}/status")

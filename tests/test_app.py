@@ -887,3 +887,63 @@ def test_the_app_own_log_says_so_when_there_is_nothing_yet(client):
     upload(client, name="sales-dashboard")
     body = client.get("/app/sales-dashboard/runtime-log").text
     assert "Nothing yet" in body
+
+
+def test_a_huge_app_log_is_not_read_into_memory_to_show_its_tail(client, tmp_path):
+    """uvicorn logs a line per request, so a dashboard that polls produces tens
+    of megabytes a month. Reading all of it to render the last few hundred
+    lines is how a log viewer takes a server down instead of helping debug
+    one."""
+    from launcher import config, files
+    upload(client, name="sales-dashboard")
+
+    log_dir = config.LOG_DIR / "sales-dashboard"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log = log_dir / "runtime.log"
+    with open(log, "w", encoding="utf-8") as fh:
+        for n in range(200_000):
+            fh.write(f'INFO: 127.0.0.1 - "GET /api/status HTTP/1.1" 200 OK  line={n}\n')
+    size = log.stat().st_size
+    assert size > 10_000_000, "the point of the test is that the file is large"
+
+    body = client.get("/app/sales-dashboard/runtime-log").text
+
+    assert "line=199999" in body, "the newest lines are the ones that matter"
+    assert "line=0" not in body, "the oldest lines must not be dragged along"
+    assert len(body) < size / 100, "only a small tail should ever be returned"
+
+    # And the helper itself reads a window, not the file.
+    assert files.tail_text(log, 3).splitlines() == [
+        f'INFO: 127.0.0.1 - "GET /api/status HTTP/1.1" 200 OK  line={n}'
+        for n in (199_997, 199_998, 199_999)
+    ]
+
+
+def test_the_tail_never_starts_on_half_a_line(client, tmp_path):
+    """The read window lands at an arbitrary byte offset, so the first line it
+    sees is usually a fragment. A truncated first line in a traceback is worse
+    than no line at all."""
+    from launcher import files
+    log = tmp_path / "runtime.log"
+    log.write_text("".join(f"{'x' * 300} line {n}\n" for n in range(500)), encoding="utf-8")
+
+    for wanted in (1, 5, 50):
+        got = files.tail_text(log, wanted).splitlines()
+        assert len(got) == wanted
+        assert all(line.startswith("x" * 300) for line in got), "no fragments"
+
+
+def test_a_log_that_has_outgrown_its_cap_is_rolled_over_at_the_next_start(tmp_path):
+    from launcher import files
+    log = tmp_path / "runtime.log"
+    log.write_text("old content\n" * 1000, encoding="utf-8")
+
+    assert files.rotate_if_large(log, limit=10_000_000) is False, "small log stays put"
+    assert files.rotate_if_large(log, limit=100) is True
+    assert not log.exists(), "the live name is free for the next run"
+    assert (tmp_path / "runtime.log.1").read_text(encoding="utf-8").startswith("old content")
+
+    # Only one previous log is kept, so this cannot grow without bound either.
+    log.write_text("newer content\n" * 1000, encoding="utf-8")
+    assert files.rotate_if_large(log, limit=100) is True
+    assert (tmp_path / "runtime.log.1").read_text(encoding="utf-8").startswith("newer content")

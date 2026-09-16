@@ -225,6 +225,11 @@
   <div class="logbar">
     <button type="button" id="refresh-runtime">Refresh</button>
     <button type="button" id="copy-runtime">Copy for AI</button>
+    {# Only the tail is fetched, so say so rather than letting someone think
+       they are looking at everything the app ever printed. #}
+    <button type="button" id="more-runtime">Show more</button>
+    <a id="download-runtime" href="/app/{{ app['name'] }}/runtime-log?lines=5000"
+       download="{{ app['name'] }}-app-log.txt">Download</a>
     <span class="stamp" id="runtime-stamp"></span>
   </div>
   <pre class="log" id="runtime-log">Open to load the log.</pre>
@@ -311,13 +316,19 @@ const runBox = document.getElementById("runbox");
 const runEl = document.getElementById("runtime-log");
 const runStamp = document.getElementById("runtime-stamp");
 
+let runtimeLines = 400;
+
 async function loadRuntimeLog() {
   try {
-    const text = await fetch(`/app/${appName}/runtime-log`).then(r => r.text());
+    const text = await fetch(`/app/${appName}/runtime-log?lines=${runtimeLines}`)
+      .then(r => r.text());
     const atBottom = runEl.scrollHeight - runEl.scrollTop - runEl.clientHeight < 40;
     runEl.textContent = text || "Nothing logged yet.";
     if (atBottom) runEl.scrollTop = runEl.scrollHeight;
-    runStamp.textContent = "updated " + new Date().toLocaleTimeString();
+    const shown = text ? text.split("\n").length : 0;
+    runStamp.textContent =
+      `last ${shown} line${shown === 1 ? "" : "s"} · updated `
+      + new Date().toLocaleTimeString();
   } catch (err) {
     runStamp.textContent = "could not load the log";
   }
@@ -328,6 +339,11 @@ runBox.addEventListener("toggle", () => {
   if (runBox.open && !runLoaded) { runLoaded = true; loadRuntimeLog(); }
 });
 document.getElementById("refresh-runtime").addEventListener("click", loadRuntimeLog);
+document.getElementById("more-runtime").addEventListener("click", (ev) => {
+  runtimeLines = Math.min(runtimeLines * 4, 5000);
+  if (runtimeLines >= 5000) ev.currentTarget.disabled = true;
+  loadRuntimeLog();
+});
 document.getElementById("copy-runtime").addEventListener("click", async (ev) => {
   const button = ev.currentTarget;
   // textContent, not innerText: a collapsed <details> reports innerText as "".

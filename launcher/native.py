@@ -25,7 +25,7 @@ from pathlib import Path
 
 import psutil
 
-from . import config, settings
+from . import config, files, settings
 from .detect import Spec
 
 LogSink = Callable[[str], None]
@@ -268,6 +268,14 @@ def start(app_name: str, src: Path, spec: Spec, public_port: int,
     """Launch the app's processes and return their pids."""
     processes = Processes()
     runtime_log = log_dir / "runtime.log"
+
+    # Nothing holds the log open at this moment, which is the only point at
+    # which it can safely be rolled over on Windows. An app that simply keeps
+    # running would otherwise append to one file indefinitely.
+    if files.rotate_if_large(runtime_log, config.RUNTIME_LOG_MAX_BYTES):
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(runtime_log, "a", encoding="utf-8") as fresh:
+            fresh.write("--- previous log rolled over to runtime.log.1 ---\n")
 
     if spec.backend and backend_port:
         reserved = {"PORT": str(backend_port), "PYTHONUNBUFFERED": "1"}
