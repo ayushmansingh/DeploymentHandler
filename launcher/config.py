@@ -77,6 +77,12 @@ SUPERVISOR_INTERVAL_SECONDS = _env_int("LAUNCHER_SUPERVISOR_INTERVAL", 15)
 # it is restarted, so a brief spike during a request does not bounce it.
 MEMORY_STRIKES_BEFORE_RESTART = _env_int("LAUNCHER_MEMORY_STRIKES", 3)
 
+# How many times in a row the supervisor will restart an app that dies again
+# straight away before it accepts the app is broken and stops. A crash on
+# start repeats identically however many times it is retried, and each retry
+# writes its whole traceback to the log.
+RESTARTS_BEFORE_GIVING_UP = _env_int("LAUNCHER_RESTART_LIMIT", 3)
+
 # npm is a .cmd shim on Windows, so it has to be resolved rather than assumed.
 NPM_COMMAND = os.environ.get("LAUNCHER_NPM", "")
 

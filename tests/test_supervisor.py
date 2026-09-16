@@ -196,3 +196,62 @@ def test_restore_resolves_interrupted_builds_as_well(live_app, relaunches, monke
 
     assert db.get_deploy(deploy_id)["status"] == "failed"
     assert relaunches == ["alpha"], "the live app is still brought back"
+
+
+def test_an_app_that_dies_on_start_is_not_restarted_for_ever(data_dir, monkeypatch):
+    """A crash at import repeats identically however many times it is retried.
+    Restarting on a timer spawned a process every few seconds and wrote the
+    same traceback to the log indefinitely - and left the dashboard claiming
+    the app was live the whole time, because launch() reports success as soon
+    as it has spawned something."""
+    from launcher import config, db, supervisor
+
+    db.init()
+    app_id = db.create_app("query-allocation-dashboard")
+    db.update_app(app_id, status="live", host_port=24817, backend_port=31000,
+                  front_pid=111, pid=222)
+
+    launches = []
+    monkeypatch.setattr(supervisor, "launch",
+                        lambda row, reason="": launches.append(row["name"]) or True)
+    monkeypatch.setattr(supervisor, "stop", lambda row: None)
+    # Never alive, exactly like a backend that raises on import.
+    monkeypatch.setattr(supervisor, "_front_alive", lambda row: False)
+    monkeypatch.setattr(supervisor, "_backend_alive", lambda row: False)
+    supervisor._restarts.clear()
+
+    for _ in range(10):
+        supervisor.check_once()
+
+    limit = config.RESTARTS_BEFORE_GIVING_UP
+    assert len(launches) == limit, f"should stop after {limit}, not keep going"
+    assert db.get_app(app_id)["status"] == "failed", (
+        "a broken app must stop claiming to be live"
+    )
+
+
+def test_a_restart_that_sticks_clears_the_count(data_dir, monkeypatch):
+    """One crash followed by a healthy restart must not leave the app one
+    strike from being given up on days later."""
+    from launcher import config, db, supervisor
+
+    db.init()
+    app_id = db.create_app("sales-dashboard")
+    db.update_app(app_id, status="live", host_port=24817, backend_port=31000,
+                  front_pid=111, pid=222)
+
+    alive = {"value": False}
+    monkeypatch.setattr(supervisor, "launch", lambda row, reason="": True)
+    monkeypatch.setattr(supervisor, "stop", lambda row: None)
+    monkeypatch.setattr(supervisor, "_front_alive", lambda row: alive["value"])
+    monkeypatch.setattr(supervisor, "_backend_alive", lambda row: alive["value"])
+    monkeypatch.setattr(supervisor.native, "memory_mb", lambda pid: 10.0)
+    supervisor._restarts.clear()
+
+    supervisor.check_once()                     # dies once
+    assert supervisor._restarts.get(app_id) == 1
+
+    alive["value"] = True
+    supervisor.check_once()                     # comes back and stays
+    assert app_id not in supervisor._restarts, "a healthy check clears the count"
+    assert db.get_app(app_id)["status"] == "live"

@@ -26,6 +26,9 @@ _lock = threading.Lock()
 # app_id -> consecutive checks spent over the memory limit.
 _strikes: dict[int, int] = {}
 
+# Consecutive restarts of an app that will not stay up, per app id.
+_restarts: dict[int, int] = {}
+
 
 def _log(app_name: str, message: str) -> None:
     path = config.LOG_DIR / app_name / "runtime.log"
@@ -123,9 +126,35 @@ def check_once() -> None:
         app_id = int(row["id"])
 
         if not _front_alive(row) or not _backend_alive(row):
-            _log(row["name"], "App is not running any more - restarting it.")
+            # An app that dies on start dies the same way every time. Retrying
+            # it forever spawned a process every few seconds and wrote the same
+            # traceback to the log until the disk noticed - all while the
+            # dashboard still said "live", because launch() reports success as
+            # soon as it has spawned something.
+            attempts = _restarts.get(app_id, 0) + 1
+            _restarts[app_id] = attempts
+            if attempts > config.RESTARTS_BEFORE_GIVING_UP:
+                _log(
+                    row["name"],
+                    f"Stopped after {config.RESTARTS_BEFORE_GIVING_UP} restarts - "
+                    "it exits as soon as it starts. The reason is in the App log "
+                    "above this line. Fix the ZIP and upload it again.",
+                )
+                stop(row)
+                db.update_app(app_id, status="failed")
+                _restarts.pop(app_id, None)
+                continue
+
+            _log(
+                row["name"],
+                f"App is not running any more - restarting it "
+                f"(attempt {attempts} of {config.RESTARTS_BEFORE_GIVING_UP}).",
+            )
             launch(row)
             continue
+
+        # It is up, so whatever went wrong before is behind us.
+        _restarts.pop(app_id, None)
 
         used = native.memory_mb(row["front_pid"]) + native.memory_mb(row["pid"])
         if used > config.APP_MEMORY_LIMIT_MB:
