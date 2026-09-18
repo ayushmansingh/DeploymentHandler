@@ -39,7 +39,15 @@ While unpacking:
 
 ## 3. Work out what the project is
 
-If `launcher.yaml` exists at the root it wins. Otherwise:
+If `launcher.yaml` exists at the root it wins — but only where it actually
+says something. It reads exactly two structural keys, `backend:` and
+`frontend:`, each a block with `path:` under it; a string, a list, or a key
+called `api:` or `server:` describes nothing. **A manifest that names neither
+falls back to the rules below** rather than failing, keeps whatever settings
+it did declare, and says so in the deploy log. So the folders are what is
+read when there is no manifest, and also when there is one that missed.
+
+**Detection rules:**
 
 **Backend** — the first directory containing `requirements.txt`, preferring
 `backend/`, `api/`, `server/`, `app/`, `src/`, then any directory up to two

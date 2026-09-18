@@ -118,3 +118,76 @@ def test_manifest_overrides_detection(tmp_path):
     assert spec.kind == "fullstack"
     assert spec.backend.start == "python serve.py"
     assert spec.frontend.output == "build"
+
+
+# ---------------------------------------------------------------------------
+# A manifest that describes nothing must not sink an ordinary project
+# ---------------------------------------------------------------------------
+
+ORDINARY = {
+    "backend/requirements.txt": "fastapi\n",
+    "backend/main.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+    "frontend/package.json": '{"scripts":{"build":"vite build"}}',
+}
+
+
+@pytest.mark.parametrize("manifest", [
+    "backend: ./backend\nfrontend: ./frontend\n",      # strings, not blocks
+    "api:\n  path: backend\nweb:\n  path: frontend\n",  # keys we do not read
+    "server:\n  path: backend\n",
+    "app:\n  backend:\n    path: backend\n",            # nested a level too deep
+    "backend:\n  - path: backend\n",                    # a list
+    "name: my-dashboard\nversion: 1.0\n",               # no structure at all
+    "settings:\n  - name: API_KEY\n",                   # the common one
+])
+def test_a_manifest_that_names_nothing_falls_back_to_the_folders(tmp_path, manifest):
+    """Every one of these projects is perfectly ordinary and would have
+    deployed with no launcher.yaml at all. Refusing them taught the team that
+    writing the file is riskier than leaving it out."""
+    for name, body in ORDINARY.items():
+        p = tmp_path / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    (tmp_path / "launcher.yaml").write_text(manifest, encoding="utf-8")
+
+    spec = detect.detect(tmp_path)
+
+    assert spec.kind == "fullstack"
+    assert spec.backend is not None and spec.frontend is not None
+    assert any("folders were used instead" in note for note in spec.notes), (
+        "the log has to say the manifest was bypassed, or this is silent magic"
+    )
+
+
+def test_settings_survive_the_fallback(tmp_path):
+    """The settings are the reason to write the file at all, so a manifest that
+    got only its structure wrong must not lose them."""
+    for name, body in ORDINARY.items():
+        p = tmp_path / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    (tmp_path / "launcher.yaml").write_text(
+        "settings:\n"
+        "  - name: REDASH_API_KEY\n"
+        "  - name: PAGE_SIZE\n    default: 50\n",
+        encoding="utf-8",
+    )
+
+    spec = detect.detect(tmp_path)
+
+    assert [d.name for d in spec.settings] == ["REDASH_API_KEY", "PAGE_SIZE"]
+    assert [d.default for d in spec.settings] == [None, "50"]
+
+
+def test_a_zip_with_nothing_in_it_still_fails_and_names_what_it_saw(tmp_path):
+    (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    (tmp_path / "launcher.yaml").write_text(
+        "name: thing\nversion: 2\n", encoding="utf-8"
+    )
+
+    with pytest.raises(detect.DetectionError) as caught:
+        detect.detect(tmp_path)
+
+    message = str(caught.value)
+    assert "name, version" in message, "say which keys were actually found"
+    assert "`backend:`" in message and "`frontend:`" in message

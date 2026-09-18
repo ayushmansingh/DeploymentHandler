@@ -26,9 +26,23 @@ BACKEND (Python)
 - The server starts the app for you. A `if __name__ == "__main__"` block is
   harmless but is not used, and the port is chosen by the server
 
-SETTINGS THE APP NEEDS
-- Every setting the app reads from the environment goes in a launcher.yaml
-  file at the root of the ZIP. Do not ship a .env file for these:
+LAUNCHER.YAML - ONE FILE AT THE ROOT OF THE ZIP
+- It is OPTIONAL. An app that is just backend/ and frontend/ needs no
+  launcher.yaml at all - the server finds those folders on its own. Write one
+  only to declare settings
+- If you write it, write the WHOLE file. A launcher.yaml containing only
+  `settings:` is the single most common way a deploy fails
+- It reads exactly TWO structural keys, `backend:` and `frontend:`, and each
+  is a BLOCK with `path:` underneath - not a string, not a list. No other
+  name works: api, server, service, app, web, client and ui are all ignored.
+  This is the entire file:
+
+      backend:
+        path: backend
+      frontend:
+        path: frontend
+        build: npm run build
+        output: dist
       settings:
         - name: REDASH_API_KEY
           description: Personal API key from Redash, under Profile
@@ -38,6 +52,10 @@ SETTINGS THE APP NEEDS
         - name: PAGE_SIZE
           description: Rows per page
           default: 50
+
+SETTINGS THE APP NEEDS
+- Every setting the app reads from the environment goes under `settings:` in
+  that file. Do not ship a .env file for these
 - Three kinds, and the difference matters:
     SECRET - a key, token or password. Name it, never write the value. A
       person types it into the server and the app starts once they have
@@ -81,6 +99,17 @@ A route at `/items` is unreachable no matter how correct the code is.
 **Relative API calls.** `http://localhost:8000` means the machine the browser
 is running on, not the server. This is the single most common failure, so the
 launcher rejects it before building rather than after.
+
+**`launcher.yaml` is optional, and its shape is exact.** The launcher reads
+two structural keys, `backend:` and `frontend:`, each a block with `path:`
+under it. Anything else - a string instead of a block, a list, or keys called
+`api:`, `server:` or `web:` - describes nothing, and the settings alone
+describe nothing either. That last case was the common one, because the
+prompt used to show `settings:` on its own and an AI reasonably copied just
+that. A manifest that names neither now falls back to reading the folders
+rather than failing, so these deploys succeed with a note in the log - but
+the file is still worth writing correctly, and worth leaving out entirely
+when there are no settings to declare.
 
 **Settings declared in `launcher.yaml`, valued on the server.** Nobody is at
 a terminal on the server to create a `.env`. The ZIP says which settings the

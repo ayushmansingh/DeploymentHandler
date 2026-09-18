@@ -310,11 +310,31 @@ def _from_manifest(root: Path, data: dict) -> Spec:
             output=fe.get("output", "dist"),
         )
 
-    if backend is None and frontend is None:
-        raise DetectionError(
-            "Your launcher.yaml does not describe a backend or a frontend."
-        )
     declared = _parse_settings(data)
+
+    if backend is None and frontend is None:
+        # The manifest named neither, which in practice means a `backend:` that
+        # is a string rather than a mapping, or keys called api/server/web. The
+        # project itself is almost always perfectly ordinary, and would have
+        # deployed had the file not been there at all - so look at the folders
+        # instead of refusing. Anything the manifest did get right, like the
+        # settings, is kept.
+        backend = _detect_backend(root)
+        frontend = _detect_frontend(root)
+        if backend is None and frontend is None:
+            raise DetectionError(
+                "Your launcher.yaml does not describe a backend or a frontend, "
+                f"and neither does the ZIP. It has these top-level keys: "
+                f"{', '.join(sorted(map(str, data))) or 'none'}. The launcher "
+                "reads exactly two: `backend:` and `frontend:`, each a block "
+                "with a `path:` under it. A Python backend also needs a "
+                "requirements.txt, and a frontend a package.json."
+            )
+        notes.append(
+            "launcher.yaml named no backend or frontend, so the folders were "
+            "used instead. It reads exactly two keys - `backend:` and "
+            "`frontend:` - each a block with `path:` under it."
+        )
     # A default answers the question, so those are neither asked for nor
     # merely optional - the app already has a value.
     needed = [d.name for d in declared if d.required and d.default is None]

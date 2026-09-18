@@ -385,6 +385,13 @@ frontend:
 Write the start command against port 8000; the launcher rewrites it to the
 port it actually assigned. `$PORT` also works.
 
+`backend:` and `frontend:` are the only two structural keys, and each is a
+block with `path:` under it. A string, a list, or a key named `api:`,
+`server:` or `web:` describes nothing — and nor does a file containing only
+`settings:`, which is the usual way this goes wrong. A manifest that names
+neither falls back to auto-detection rather than failing the deploy, keeps
+the settings it declared, and notes what happened in the log.
+
 ## Failures are handled as text, not as debugging
 
 When a deploy fails the dashboard shows one plain sentence, and a **Copy error
