@@ -102,7 +102,20 @@ KEEP_VERSIONS = _env_int("LAUNCHER_KEEP_VERSIONS", 5)
 
 # The hostname users see in the links we hand out. Set this to the server's
 # static LAN IP or DNS name, otherwise links only work from the server itself.
-PUBLIC_HOST = os.environ.get("LAUNCHER_PUBLIC_HOST", "localhost")
+def _default_public_host() -> str:
+    """The machine's own name, not "localhost" and not a typed-in address.
+
+    This is only the fallback for links built without a request to read, but
+    the fallback matters: an address typed into settings.cmd stops being true
+    the first time DHCP hands out a different one, while the computer's name
+    survives every reboot.
+    """
+    from . import hostinfo
+
+    return hostinfo.share_host()
+
+
+PUBLIC_HOST = os.environ.get("LAUNCHER_PUBLIC_HOST", "") or _default_public_host()
 
 # Junk we strip from every upload before building. Users WILL zip these.
 JUNK_DIRS = {

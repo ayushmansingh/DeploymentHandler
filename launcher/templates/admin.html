@@ -11,6 +11,53 @@
 
 {% if message %}<div class="banner {{ message_kind }}">{{ message }}</div>{% endif %}
 
+{# The address this machine holds can change when it reboots; its name cannot.
+   So the name is what goes in a link meant to keep working. #}
+<div class="card">
+  <strong>The link to share</strong>
+  <p class="muted" style="font-size:13px;margin:4px 0 0">
+    Links on this dashboard already follow whatever address you opened it on,
+    so they are never stale. This is the one to paste into chat, because it
+    keeps working after the server reboots.</p>
+
+  {% if network.name_is_usable %}
+  <p style="margin:14px 0 0">
+    <code style="font-size:16px;font-weight:600">{{ network.share_url }}</code>
+    <button type="button" class="copy-text" data-text="{{ network.share_url }}"
+            style="margin-left:10px">Copy</button>
+  </p>
+  <p class="muted" style="font-size:12.5px;margin:8px 0 0">
+    <strong>{{ network.computer_name }}</strong> is this computer's name. It does
+    not change when the network hands out a new address, so a link built on it
+    survives a restart. Send it to one colleague first and check it opens - on
+    some networks a name only resolves once IT has it in DNS, and then the
+    addresses below are the fallback.</p>
+  {% else %}
+  <p class="muted" style="font-size:13px;margin:14px 0 0">
+    This machine has no usable name to build a stable link from, so use an
+    address below - and expect to re-share it if the server reboots.</p>
+  {% endif %}
+
+  <table style="margin-top:16px">
+    <tr><th>Also reachable at</th><th></th></tr>
+    {% for address_url in network.address_urls %}
+    <tr>
+      <td><code>{{ address_url }}</code></td>
+      <td style="text-align:right">
+        <button type="button" class="copy-text" data-text="{{ address_url }}">Copy</button>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="2" class="muted">No network address found - this machine
+      may not be on the network right now.</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="font-size:12.5px;margin:12px 0 0">
+    These come from the machine itself, so they are what it holds right now -
+    not what was typed into <code>settings.cmd</code> when it was installed.
+    You opened this page on <code>{{ reached_on }}</code>.</p>
+</div>
+
 <div class="stats">
   <div class="stat">
     <div class="label">Version</div>

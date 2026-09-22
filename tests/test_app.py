@@ -856,9 +856,13 @@ def test_the_log_does_not_end_on_a_sentence_that_stopped_being_true(client, monk
     assert "Waiting for settings" in log, "the history stays; it did happen"
     assert "Settings supplied by Priya" in log
     assert "SUCCESS" in log
-    assert log.rstrip().endswith("http://localhost:24817"), (
+    # The host is whatever this machine calls itself, so assert the shape and
+    # the port rather than a hostname that differs per server.
+    last = log.rstrip().splitlines()[-1]
+    assert last.startswith("[launcher] SUCCESS."), (
         "the last line has to describe the state the app is actually in"
     )
+    assert last.endswith(":24817"), "and it has to name the port the app is on"
 
 
 def test_the_app_own_log_is_readable_from_the_page(client):
@@ -947,3 +951,52 @@ def test_a_log_that_has_outgrown_its_cap_is_rolled_over_at_the_next_start(tmp_pa
     log.write_text("newer content\n" * 1000, encoding="utf-8")
     assert files.rotate_if_large(log, limit=100) is True
     assert (tmp_path / "runtime.log.1").read_text(encoding="utf-8").startswith("newer content")
+
+
+# ---------------------------------------------------------------------------
+# Links have to survive the server getting a different address
+# ---------------------------------------------------------------------------
+
+def test_app_links_follow_the_address_the_dashboard_was_opened_on(client):
+    """Links were built from a hostname typed once into settings.cmd. The
+    office DHCP does not promise the same address twice, so after a reboot
+    every link on the dashboard named an address the machine no longer had -
+    while the server itself was perfectly fine."""
+    from launcher import db as database
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    # Two colleagues reach the same server by different names.
+    first = client.get("/app/sales-dashboard/status",
+                       headers={"host": "172.16.4.25:9000"}).json()
+    second = client.get("/app/sales-dashboard/status",
+                        headers={"host": "mmt11842:9000"}).json()
+
+    assert first["url"] == "http://172.16.4.25:24817"
+    assert second["url"] == "http://mmt11842:24817"
+
+
+def test_a_stale_configured_host_cannot_poison_a_link(client, monkeypatch):
+    """Even with the old address still sitting in settings.cmd, a browser that
+    reached us on the new one must be sent back to the new one."""
+    from launcher import config, db as database
+    monkeypatch.setattr(config, "PUBLIC_HOST", "172.16.4.30")   # yesterday's address
+    upload(client, name="sales-dashboard")
+    row = database.get_app_by_name("sales-dashboard")
+    database.update_app(int(row["id"]), status="live", host_port=24817)
+
+    payload = client.get("/app/sales-dashboard/status",
+                         headers={"host": "172.16.4.25:9000"}).json()
+
+    assert payload["url"] == "http://172.16.4.25:24817"
+    assert "4.30" not in payload["url"], "the stale setting must not win"
+
+
+def test_the_server_tab_offers_the_name_rather_than_the_address(client):
+    from launcher import hostinfo
+    page = client.get("/admin/update", headers={"host": "172.16.4.25:9000"}).text
+
+    assert "The link to share" in page
+    assert hostinfo.computer_name() in page, "the name is the stable part"
+    assert "172.16.4.25" in page, "and the address we were reached on is shown too"

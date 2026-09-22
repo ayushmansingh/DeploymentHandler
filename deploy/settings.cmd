@@ -3,10 +3,12 @@ REM Settings shared by install-windows.cmd and start-launcher.cmd, so the
 REM self-test checks the same configuration the launcher actually runs with.
 REM Edit the values here - nowhere else.
 
-REM The server's own address on the network. This appears in every link handed
-REM to your team, so an address they cannot reach gives them broken links.
-REM Find it with:  ipconfig
-set LAUNCHER_PUBLIC_HOST=192.168.1.50
+REM LEAVE THIS EMPTY. The launcher builds every link from the address the
+REM browser actually used, so it is never wrong, and falls back to this
+REM computer's own name - which survives a reboot, while the address handed
+REM out by the network does not. Setting an address here only pins a value
+REM that stops being true the next time this machine restarts.
+set LAUNCHER_PUBLIC_HOST=
 
 REM Where uploads, app files, logs and saved app data are kept. Back this up.
 REM Do NOT put this under %LOCALAPPDATA%: Python installed from the Microsoft

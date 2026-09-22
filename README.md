@@ -116,9 +116,11 @@ Python environment, installs dependencies, and runs the self-test.
 
 ### 4. Configure and start
 
-Edit `deploy\settings.cmd` and set `LAUNCHER_PUBLIC_HOST` to the server's
-own LAN address — find it with `ipconfig`. Left as an address the rest of the
-network cannot reach, every link handed to your team will be broken.
+Edit `deploy\settings.cmd` if you need to — but you no longer have to put an
+address in it. Every link the dashboard shows is built from the address the
+browser used to reach it, so it cannot be stale, and the **Server** tab shows
+the one link worth sharing: `http://<computer-name>:<port>/`. The computer's
+name survives a reboot; the address the network hands out may not.
 
 Both scripts read that one file, so the self-test always checks the same
 configuration the launcher actually runs with.
@@ -345,7 +347,7 @@ All settings are environment variables (see `launcher/config.py`):
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LAUNCHER_PUBLIC_HOST` | `localhost` | **Set this.** Appears in every link handed out |
+| `LAUNCHER_PUBLIC_HOST` | this computer's name | Leave empty. Links follow the address the browser used; this is only the fallback for log lines written with no browser involved |
 | `LAUNCHER_DATA_DIR` | `%USERPROFILE%\AppLauncherData` | ZIPs, sources, logs, saved app data. **Never put this under `%LOCALAPPDATA%`** |
 | `LAUNCHER_RUNTIME` | `native` | `native` or `docker` |
 | `LAUNCHER_NPM` | auto-detected | Full path to `npm.cmd` if it is not on PATH |

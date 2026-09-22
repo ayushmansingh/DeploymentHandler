@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
-from . import appdata, config, db, deployer, errors, files, metrics, naming, native
+from . import appdata, config, db, deployer, errors, files, hostinfo, metrics, naming, native
 from . import selfupdate, settings as app_settings
 from . import ports
 from . import runtime
@@ -85,10 +85,26 @@ def runtime_ready() -> tuple[bool, str]:
     return True, ""
 
 
-def _app_url(row) -> str | None:
+def _app_url(row, request: Request | None = None) -> str | None:
+    """A link to an app, built from the address this page was reached on.
+
+    Anyone reading the dashboard has just proved they can reach this machine
+    at whatever host is in their address bar, so that is the host their app
+    links should use. Building them from a name typed once into settings.cmd
+    is how every link on the dashboard came to point at an address the server
+    no longer had after a reboot.
+    """
     if not row["host_port"]:
         return None
-    return f"http://{config.PUBLIC_HOST}:{row['host_port']}"
+    host = None
+    if request is not None:
+        host = request.url.hostname
+    if not host:
+        host = config.PUBLIC_HOST
+    # An IPv6 literal needs its brackets back before it goes in a URL.
+    if ":" in host:
+        host = f"[{host}]"
+    return f"http://{host}:{row['host_port']}"
 
 
 def _require_app(name: str):
@@ -109,7 +125,7 @@ _STATUS_ORDER = {
 }
 
 
-def _app_summary(row) -> dict:
+def _app_summary(row, request: Request | None = None) -> dict:
     """Everything the dashboard shows about one app."""
     latest = db.list_deploys(int(row["id"]), limit=1)
     deploy = latest[0] if latest else None
@@ -120,7 +136,7 @@ def _app_summary(row) -> dict:
         "status": row["status"],
         "kind": row["kind"],
         "owner": row["owner"] or "",
-        "url": _app_url(row),
+        "url": _app_url(row, request),
         "port": row["host_port"],
         "data_size": appdata.human_size(appdata.size_bytes(row["name"])),
         "deployed_at": deploy["created_at"] if deploy else None,
@@ -150,15 +166,15 @@ def _app_summary(row) -> dict:
     return summary
 
 
-def _all_summaries() -> list[dict]:
-    summaries = [_app_summary(row) for row in db.list_apps()]
+def _all_summaries(request: Request | None = None) -> list[dict]:
+    summaries = [_app_summary(row, request) for row in db.list_apps()]
     summaries.sort(key=lambda a: (_STATUS_ORDER.get(a["status"], 9), a["name"]))
     return summaries
 
 
-def _grid_context() -> dict:
+def _grid_context(request: Request | None = None) -> dict:
     """Context for the app grid, including whether anything is still working."""
-    apps = _all_summaries()
+    apps = _all_summaries(request)
     host = metrics.host()
     return {
         "apps": apps,
@@ -187,7 +203,7 @@ def dashboard(request: Request):
     return templates.TemplateResponse(
         request, "index.html",
         {
-            **_grid_context(), **_nav("dashboard"),
+            **_grid_context(request), **_nav("dashboard"),
             "runtime_ready": ready, "runtime_problem": problem,
         },
     )
@@ -208,13 +224,13 @@ def deploy_page(request: Request):
 @app.get("/partials/apps", response_class=HTMLResponse)
 def partial_apps(request: Request):
     """The app grid on its own, for the dashboard's live refresh."""
-    return templates.TemplateResponse(request, "_apps.html", _grid_context())
+    return templates.TemplateResponse(request, "_apps.html", _grid_context(request))
 
 
 @app.get("/api/apps")
-def api_apps():
+def api_apps(request: Request):
     """Backs the dashboard's live refresh, so a building app updates in place."""
-    apps = _all_summaries()
+    apps = _all_summaries(request)
     return {
         "apps": apps,
         "live_count": sum(1 for a in apps if a["status"] == "live"),
@@ -377,13 +393,13 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
         {
             **_nav("dashboard"),
             "app": row,
-            "url": _app_url(row),
+            "url": _app_url(row, request),
             "deploys": deploys,
             "current": current,
             "container_state": state,
             "data_size": appdata.human_size(appdata.size_bytes(name)),
             "data_dir": appdata.dir_for(name),
-            "usage": _app_summary(row)["usage"],
+            "usage": _app_summary(row, request)["usage"],
             "settings": _setting_rows(int(row["id"])),
             "declared_names": [
                 d.get("name") for d in db.get_declared_settings(int(row["id"]))
@@ -412,7 +428,7 @@ def partial_status(request: Request, name: str, deploy: int | None = None):
         current = recent[0] if recent else None
     return templates.TemplateResponse(
         request, "_appstatus.html",
-        {"app": row, "url": _app_url(row), "current": current},
+        {"app": row, "url": _app_url(row, request), "current": current},
     )
 
 
@@ -462,7 +478,7 @@ def app_runtime_log(name: str, lines: int = 400):
 
 
 @app.get("/app/{name}/status")
-def app_status(name: str, deploy: int | None = None):
+def app_status(request: Request, name: str, deploy: int | None = None):
     row = _require_app(name)
     target = db.get_deploy(deploy) if deploy else None
     if target is None:
@@ -471,7 +487,7 @@ def app_status(name: str, deploy: int | None = None):
     return {
         "app_status": row["status"],
         "deploy_status": target["status"] if target else "unknown",
-        "url": _app_url(row),
+        "url": _app_url(row, request),
         "error": target["error_summary"] if target else None,
     }
 
@@ -781,6 +797,11 @@ def admin_update(request: Request, message: str = "", kind: str = "ok"):
             "started_at": _started_at,
             "install_dir": selfupdate.INSTALL_DIR,
             "app_count": len(db.list_apps()),
+            # The port this page was reached on is the port to share, and it
+            # is the only place that number is known - the launcher's own port
+            # comes from the command line, not from config.
+            "network": hostinfo.summary(request.url.port or 80),
+            "reached_on": request.url.hostname or "",
             "update_log": _update_log(),
             "message": message,
             "message_kind": kind,

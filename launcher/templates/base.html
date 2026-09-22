@@ -355,6 +355,12 @@ async function copyWithFeedback(button, text, doneLabel) {
   setTimeout(() => { button.textContent = button.dataset.label; }, 4000);
   return copied;
 }
+
+// Any button carrying the text it should copy, wherever it appears.
+document.addEventListener("click", (ev) => {
+  const button = ev.target.closest(".copy-text");
+  if (button) copyWithFeedback(button, button.dataset.text || "", "Copied");
+});
 </script>
 </body>
 </html>
