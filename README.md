@@ -116,6 +116,10 @@ Python environment, installs dependencies, and runs the self-test.
 
 ### 4. Configure and start
 
+`deploy\settings.cmd` is created from `settings.example.cmd` the first time a
+script runs, and is never shipped — so extracting a new version over an
+install cannot overwrite your data directory, port or npm path.
+
 Edit `deploy\settings.cmd` if you need to — but you no longer have to put an
 address in it. Every link the dashboard shows is built from the address the
 browser used to reach it, so it cannot be stale, and the **Server** tab shows

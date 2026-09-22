@@ -1,7 +1,8 @@
 @echo off
-REM Settings shared by install-windows.cmd and start-launcher.cmd, so the
-REM self-test checks the same configuration the launcher actually runs with.
-REM Edit the values here - nowhere else.
+REM TEMPLATE. On first run the scripts copy this to settings.cmd next to it,
+REM and settings.cmd is the file you edit. Updates replace this template but
+REM never your settings.cmd, so extracting a new version over an install
+REM cannot lose your data directory, port or npm path.
 
 REM LEAVE THIS EMPTY. The launcher builds every link from the address the
 REM browser actually used, so it is never wrong, and falls back to this

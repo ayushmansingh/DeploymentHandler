@@ -3,6 +3,13 @@ REM Starts the App Launcher. Put a shortcut to this file in your Startup
 REM folder (Win+R, then: shell:startup) so it comes back after a restart.
 REM Settings live in settings.cmd next to this file.
 
+REM Create settings.cmd from the template the first time, so an update that
+REM replaces the template cannot overwrite the values on this machine.
+if not exist "%~dp0settings.cmd" (
+  copy /y "%~dp0settings.example.cmd" "%~dp0settings.cmd" >nul
+  echo Created deploy\settings.cmd from the template. Edit it if you need to.
+)
+
 call "%~dp0settings.cmd"
 cd /d "%~dp0.."
 

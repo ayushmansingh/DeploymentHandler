@@ -2,6 +2,13 @@
 REM One-time setup on the Windows server. No administrator rights needed.
 REM Double-click this file, or run it from a command prompt.
 
+REM Create settings.cmd from the template the first time, so an update that
+REM replaces the template cannot overwrite the values on this machine.
+if not exist "%~dp0settings.cmd" (
+  copy /y "%~dp0settings.example.cmd" "%~dp0settings.cmd" >nul
+  echo Created deploy\settings.cmd from the template. Edit it if you need to.
+)
+
 call "%~dp0settings.cmd"
 cd /d "%~dp0.."
 

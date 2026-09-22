@@ -8,3 +8,6 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Created from settings.example.cmd on first run; never shipped.
+deploy/settings.cmd
