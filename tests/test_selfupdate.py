@@ -153,3 +153,36 @@ def test_script_invocations_are_rebuilt_as_scripts(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["serve.py", "--port", "8080"])
 
     assert selfupdate.launch_command()[1:] == ["serve.py", "--port", "8080"]
+
+
+def test_a_rejected_zip_explains_itself_instead_of_raising(data_dir):
+    """The Server page and its error page built their context separately. When
+    the page gained the network card the error path kept its older copy, so a
+    ZIP that failed validation produced a 500 - hiding the one message that
+    said what was wrong with the upload."""
+    from fastapi.testclient import TestClient
+
+    from launcher import app as app_module, db
+
+    db.init()
+    client = TestClient(app_module.app)
+    response = client.post(
+        "/admin/update",
+        files={"file": ("broken.zip", b"this is not a zip at all", "application/zip")},
+    )
+
+    assert response.status_code == 400, "a bad upload is the user's problem, not a crash"
+    assert "The link to share" in response.text, "the page still renders in full"
+
+
+def test_the_page_can_say_when_the_launcher_was_last_replaced(tmp_path, monkeypatch):
+    """The version string is baked into the source and never moves, so it
+    cannot answer "did my update land?"."""
+    from launcher import selfupdate
+
+    monkeypatch.setattr(selfupdate, "INSTALL_DIR", tmp_path)
+    assert selfupdate.installed_at() is None, "no install to report yet"
+
+    (tmp_path / "launcher").mkdir()
+    (tmp_path / "launcher" / "app.py").write_text("x", encoding="utf-8")
+    assert isinstance(selfupdate.installed_at(), float)

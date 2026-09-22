@@ -180,6 +180,19 @@ def _check_it_compiles(staged: Path) -> None:
         )
 
 
+def installed_at() -> float | None:
+    """When the installed launcher files were last replaced.
+
+    The version string is baked into the source and does not move between
+    builds, so it cannot answer "did my update actually land?". The moment the
+    files were written can, and it costs nothing to read.
+    """
+    try:
+        return (INSTALL_DIR / "launcher" / "app.py").stat().st_mtime
+    except OSError:
+        return None
+
+
 def back_up() -> Path:
     """Copy the current install aside so a bad update can be undone."""
     backup = config.DATA_DIR / "updates" / "previous"

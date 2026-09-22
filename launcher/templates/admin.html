@@ -63,6 +63,10 @@
     <div class="label">Version</div>
     <div class="value" style="font-size:20px">{{ version }}</div>
     <div class="note">running since {{ started_at | datetime }}</div>
+    {# The version string does not change between builds, so this is the line
+       that answers "did my update land?". #}
+    <div class="note">{% if installed_at %}files installed
+      {{ installed_at | datetime }}{% else %}install date unknown{% endif %}</div>
   </div>
   <div class="stat">
     <div class="label">Installed at</div>

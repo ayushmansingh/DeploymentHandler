@@ -787,25 +787,37 @@ def _update_log() -> str:
     return "\n".join(text.splitlines()[-40:])
 
 
+def _admin_context(request: Request, **extra) -> dict:
+    """Everything admin.html needs, in one place.
+
+    The update error page used to build this dict itself. When the Server tab
+    gained the network card, the error page kept its own older copy, and a
+    rejected ZIP raised on the missing value rather than saying what was wrong
+    with it.
+    """
+    context = {
+        **_nav("server"),
+        "version": __version__,
+        "started_at": _started_at,
+        "installed_at": selfupdate.installed_at(),
+        "install_dir": selfupdate.INSTALL_DIR,
+        "app_count": len(db.list_apps()),
+        # The port this page was reached on is the port to share, and it is
+        # the only place that number is known - the launcher's own port comes
+        # from the command line, not from config.
+        "network": hostinfo.summary(request.url.port or 80),
+        "reached_on": request.url.hostname or "",
+        "update_log": _update_log(),
+    }
+    context.update(extra)
+    return context
+
+
 @app.get("/admin/update", response_class=HTMLResponse)
 def admin_update(request: Request, message: str = "", kind: str = "ok"):
     return templates.TemplateResponse(
         request, "admin.html",
-        {
-            **_nav("server"),
-            "version": __version__,
-            "started_at": _started_at,
-            "install_dir": selfupdate.INSTALL_DIR,
-            "app_count": len(db.list_apps()),
-            # The port this page was reached on is the port to share, and it
-            # is the only place that number is known - the launcher's own port
-            # comes from the command line, not from config.
-            "network": hostinfo.summary(request.url.port or 80),
-            "reached_on": request.url.hostname or "",
-            "update_log": _update_log(),
-            "message": message,
-            "message_kind": kind,
-        },
+        _admin_context(request, message=message, message_kind=kind),
     )
 
 
@@ -843,13 +855,7 @@ async def apply_update(request: Request, file: UploadFile = None):  # type: igno
     except selfupdate.UpdateError as exc:
         return templates.TemplateResponse(
             request, "admin.html",
-            {
-                **_nav("server"),
-                "version": __version__, "started_at": _started_at,
-                "install_dir": selfupdate.INSTALL_DIR,
-                "app_count": len(db.list_apps()), "update_log": _update_log(),
-                "message": str(exc), "message_kind": "bad",
-            },
+            _admin_context(request, message=str(exc), message_kind="bad"),
             status_code=400,
         )
 
