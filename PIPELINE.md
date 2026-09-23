@@ -138,6 +138,11 @@ If `launcher.yaml` lists settings under `settings:` and any **required** one
 has no value yet, **the app is not started.** It is built and ready, and shows
 on the dashboard as waiting, with the names it needs.
 
+`PORT`, `APP_DATA_DIR` and `PYTHONUNBUFFERED` are set by the server. Listing
+one under `settings:` used to fail the deploy; it is now dropped with a note,
+because the app really does read it and the value still arrives — it is just
+not a person's to supply.
+
 Two kinds never hold it back. A setting marked `required: false` is listed on
 the app's page but is not waited for. A setting with a `default:` is not asked
 for at all: the launcher puts the declared value into the environment, and the
