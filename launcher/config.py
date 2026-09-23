@@ -97,6 +97,12 @@ MAX_ARCHIVE_ENTRIES = _env_int("LAUNCHER_MAX_ENTRIES", 20000)
 # long-lived app cannot quietly fill the disk.
 RUNTIME_LOG_MAX_BYTES = _env_int("LAUNCHER_RUNTIME_LOG_MB", 16) * 1024 * 1024
 
+# A picture of each app's home page for the dashboard. Windows 11 ships Edge,
+# which takes the screenshot from the command line, so this normally needs no
+# setup. Point it at a specific browser, or set it to "off", if wanted.
+SCREENSHOT_BROWSER = os.environ.get("LAUNCHER_SCREENSHOT_BROWSER", "").strip()
+SCREENSHOTS_ENABLED = SCREENSHOT_BROWSER.lower() != "off"
+
 # How many uploaded versions to keep per app before pruning the oldest.
 KEEP_VERSIONS = _env_int("LAUNCHER_KEEP_VERSIONS", 5)
 

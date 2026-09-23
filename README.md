@@ -398,6 +398,19 @@ block with `path:` under it. A string, a list, or a key named `api:`,
 neither falls back to auto-detection rather than failing the deploy, keeps
 the settings it declared, and notes what happened in the log.
 
+## Each app shows a picture of itself
+
+After a deploy succeeds the launcher photographs the app's own home page and
+shows it on the dashboard card. Windows 11 ships Edge, which is Chromium and
+takes a screenshot from the command line, so this needs nothing installed and
+no administrator. Chrome is used if present instead.
+
+There is always something to look at: an app with no picture — no browser on
+the server, a capture that failed, an app that has never started — gets a tile
+drawn from its own name, so a card is never a broken image. **Retake picture**
+on an app's page refreshes it, and `LAUNCHER_SCREENSHOT_BROWSER=off` turns the
+whole thing off.
+
 ## Failures are handled as text, not as debugging
 
 When a deploy fails the dashboard shows one plain sentence, and a **Copy error

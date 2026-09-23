@@ -12,7 +12,9 @@
 <div class="card">
   <strong>Replace with a newer ZIP</strong>
   <p class="muted" style="font-size:13px;margin:4px 0 0">
-    Keeps the name <code>{{ app['name'] }}</code> and the same link{% if url %}
+    Keeps the name <code>{{ app['name'] }}</code> and the same link{% if message %}<div class="banner ok">{{ message }}</div>{% endif %}
+
+{% if url %}
     (<a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>){% endif %}.
     The current version keeps running until the new one is built and answering.</p>
   <form method="post" action="/app/{{ app['name'] }}/replace" enctype="multipart/form-data">
@@ -237,6 +239,9 @@
 
 <div class="card">
   <div class="row">
+    <form method="post" action="/app/{{ app['name'] }}/thumb/refresh">
+      <button {% if app['status'] != 'live' %}disabled
+        title="The app has to be running to be photographed"{% endif %}>Retake picture</button></form>
     <form method="post" action="/app/{{ app['name'] }}/stop"><button>Stop</button></form>
     {# Start is refused while settings are outstanding, so it is not offered
        here either - an unusable button that reports an error is worse than

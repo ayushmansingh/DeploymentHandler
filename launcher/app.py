@@ -14,12 +14,13 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (FileResponse, HTMLResponse, PlainTextResponse,
+                               RedirectResponse)
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
 from . import appdata, config, db, deployer, errors, files, hostinfo, metrics, naming, native
-from . import selfupdate, settings as app_settings
+from . import selfupdate, settings as app_settings, thumbs
 from . import ports
 from . import runtime
 from . import supervisor
@@ -138,6 +139,8 @@ def _app_summary(row, request: Request | None = None) -> dict:
         "owner": row["owner"] or "",
         "url": _app_url(row, request),
         "port": row["host_port"],
+        "thumb": thumbs.has_thumb(row["name"]),
+        "tile": thumbs.tile(row["name"]),
         "data_size": appdata.human_size(appdata.size_bytes(row["name"])),
         "deployed_at": deploy["created_at"] if deploy else None,
         "deploy_status": deploy["status"] if deploy else None,
@@ -383,7 +386,7 @@ def _setting_rows(app_id: int) -> list[dict]:
 @app.get("/app/{name}", response_class=HTMLResponse)
 def app_detail(request: Request, name: str, deploy: int | None = None,
                setting_saved: str = "", setting_removed: str = "",
-               setting_error: str = "", started: str = ""):
+               setting_error: str = "", started: str = "", message: str = ""):
     row = _require_app(name)
     deploys = db.list_deploys(int(row["id"]), limit=10)
     current = db.get_deploy(deploy) if deploy else (deploys[0] if deploys else None)
@@ -414,6 +417,7 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
             "setting_removed": setting_removed,
             "setting_error": setting_error,
             "setting_started": bool(started),
+            "message": message,
         },
     )
 
@@ -475,6 +479,33 @@ def app_runtime_log(name: str, lines: int = 400):
     if not text.strip():
         return PlainTextResponse("The app has not printed anything yet.")
     return PlainTextResponse(text)
+
+
+@app.get("/app/{name}/thumb")
+def app_thumb(name: str):
+    """The captured picture of an app's home page, if there is one."""
+    _require_app(name)
+    path = thumbs.thumb_path(name)
+    if not thumbs.has_thumb(name):
+        raise HTTPException(status_code=404, detail="No picture yet")
+    # Named by the file's own timestamp on the card, so a retake is picked up
+    # without the browser holding on to the previous one.
+    return FileResponse(path, media_type="image/png")
+
+
+@app.post("/app/{name}/thumb/refresh")
+def refresh_thumb(name: str, request: Request):
+    """Retake the picture, for an app that has changed since it deployed."""
+    row = _require_app(name)
+    url = f"http://127.0.0.1:{row['host_port']}/" if row["host_port"] else ""
+    taken = config.SCREENSHOTS_ENABLED and url and thumbs.capture(name, url)
+    note = "Picture updated." if taken else (
+        "Could not take a picture - the app must be running, and this server "
+        "needs Microsoft Edge or Chrome installed."
+    )
+    return RedirectResponse(
+        f"/app/{name}?message={quote(note)}", status_code=303
+    )
 
 
 @app.get("/app/{name}/status")
@@ -653,6 +684,11 @@ def _apply_settings_change(row, by: str = "") -> bool:
             if not supervisor.launch(row, reason="Starting now that its settings are set."):
                 return False
             _settle_held_deploy(app_id, by)
+            # It was held at deploy time, so this is its first chance to be
+            # photographed.
+            fresh = db.get_app(app_id)
+            if config.SCREENSHOTS_ENABLED and fresh and fresh["host_port"]:
+                thumbs.capture(fresh["name"], f"http://127.0.0.1:{fresh['host_port']}/")
             return True
         return False
 
@@ -752,6 +788,7 @@ def delete_app(name: str):
 
     ports.release(int(row["id"]))
     db.delete_app(int(row["id"]))
+    thumbs.forget(name)
 
     # Unhook the data link before removing the source tree: on Windows,
     # deleting a tree containing a junction can delete what it points at.

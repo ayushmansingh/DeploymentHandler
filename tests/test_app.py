@@ -1000,3 +1000,79 @@ def test_the_server_tab_offers_the_name_rather_than_the_address(client):
     assert "The link to share" in page
     assert hostinfo.computer_name() in page, "the name is the stable part"
     assert "172.16.4.25" in page, "and the address we were reached on is shown too"
+
+
+# ---------------------------------------------------------------------------
+# A picture of each app, for the dashboard
+# ---------------------------------------------------------------------------
+
+def test_a_card_falls_back_to_a_tile_when_there_is_no_picture(client):
+    """A server with no browser, or an app that has never been live, must
+    still give the card something to show - a grey hole reads as broken."""
+    upload(client, name="sales-dashboard")
+
+    page = client.get("/").text
+    assert 'class="app-shot-tile"' in page, "the fallback is drawn, not left empty"
+    assert "/thumb" not in page, "and no image is requested that would 404"
+
+
+def test_the_fallback_tile_is_stable_and_per_app():
+    """Two apps should not look alike, and one app should not change colour
+    on every refresh - that is what makes it read as a design."""
+    from launcher import thumbs
+
+    first = thumbs.tile("sales-tracker")
+    assert first == thumbs.tile("sales-tracker"), "same app, same tile"
+    assert first != thumbs.tile("ops-console"), "different apps differ"
+    assert first["monogram"] == "ST"
+    assert thumbs.tile("ops-console")["monogram"] == "OC"
+    assert thumbs.tile("dashboard")["monogram"] == "D"
+
+
+def test_a_captured_picture_is_served_and_shown_on_the_card(client):
+    from launcher import thumbs
+    upload(client, name="sales-dashboard")
+
+    thumbs.THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    # A one-pixel PNG is enough to prove the plumbing.
+    thumbs.thumb_path("sales-dashboard").write_bytes(
+        b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+    )
+
+    response = client.get("/app/sales-dashboard/thumb")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+
+    page = client.get("/").text
+    assert "/app/sales-dashboard/thumb" in page
+    assert 'class="app-shot-tile"' not in page, "a real picture replaces the fallback"
+
+
+def test_deleting_an_app_takes_its_picture_with_it(client):
+    from launcher import thumbs
+    upload(client, name="sales-dashboard")
+    thumbs.THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    thumbs.thumb_path("sales-dashboard").write_bytes(b"\x89PNG\r\n\x1a\n")
+    assert thumbs.has_thumb("sales-dashboard")
+
+    client.post("/app/sales-dashboard/delete", follow_redirects=False)
+
+    assert not thumbs.has_thumb("sales-dashboard"), (
+        "a deleted app must not leave its picture behind for the next app "
+        "that happens to take the same name"
+    )
+
+
+def test_a_capture_failure_never_breaks_anything(client, monkeypatch):
+    """The picture is decoration. A browser that will not start must cost a
+    picture and nothing else."""
+    from launcher import thumbs
+    upload(client, name="sales-dashboard")
+
+    monkeypatch.setattr(thumbs, "browser_path", lambda: None)
+    assert thumbs.capture("sales-dashboard", "http://127.0.0.1:1/") is False
+
+    response = client.post("/app/sales-dashboard/thumb/refresh",
+                           follow_redirects=False)
+    assert response.status_code == 303, "it redirects rather than erroring"
+    assert client.get("/").status_code == 200, "the dashboard still renders"

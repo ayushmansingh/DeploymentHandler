@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import appdata, archive, config, db, detect, errors, files, imagegen, native
+from . import thumbs
 from . import ports
 from . import runtime
 from . import supervisor
@@ -330,6 +331,13 @@ def run_deploy(deploy_id: int) -> None:
         db.finish_deploy(deploy_id, "live")
         db.update_app(app["id"], status="live")
         _prune_old_versions(name)
+
+        # The deploy is already recorded as finished, so a browser that will
+        # not start, or an app that paints slowly, costs the dashboard a
+        # picture and nothing else.
+        if config.SCREENSHOTS_ENABLED:
+            if thumbs.capture(name, f"http://127.0.0.1:{host_port}/"):
+                log.line("[launcher] Captured a picture of the app for the dashboard.")
 
     except (archive.ArchiveError, detect.DetectionError) as exc:
         _fail(deploy_id, log, errors.Diagnosis(summary=str(exc), detail=None, hint=None))

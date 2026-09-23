@@ -70,6 +70,21 @@
   {% for app in apps %}
     {% set clickable = app.status == 'live' and app.url %}
     <div class="app-card {{ app.status }}">
+      {# A picture of the app's own home page when one has been captured, and
+         a tile drawn from its name when not - so a card is never a grey hole
+         or a broken image. #}
+      <a class="app-shot" href="{{ app.url if clickable else '/app/' + app.name }}"
+         {% if clickable %}target="_blank" rel="noopener"{% endif %}
+         aria-hidden="true" tabindex="-1">
+        {% if app.thumb %}
+          <img src="/app/{{ app.name }}/thumb" alt="" loading="lazy" decoding="async">
+        {% else %}
+          <span class="app-shot-tile"
+                style="--from: {{ app.tile['from'] }}; --to: {{ app.tile.to }}">
+            {{ app.tile.monogram }}</span>
+        {% endif %}
+      </a>
+
       <div class="app-head">
         {% if clickable %}
           <a class="app-name stretch" href="{{ app.url }}" target="_blank"
