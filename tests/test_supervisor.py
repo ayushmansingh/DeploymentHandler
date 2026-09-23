@@ -255,3 +255,72 @@ def test_a_restart_that_sticks_clears_the_count(data_dir, monkeypatch):
     supervisor.check_once()                     # comes back and stays
     assert app_id not in supervisor._restarts, "a healthy check clears the count"
     assert db.get_app(app_id)["status"] == "live"
+
+
+def test_apps_that_were_already_running_get_their_picture_filled_in(data_dir, monkeypatch):
+    """Capture happens on deploy, so every app already running when this
+    arrived would have sat on a generated tile until somebody redeployed them
+    one at a time."""
+    from launcher import db, supervisor, thumbs
+
+    db.init()
+    for name in ("alpha", "beta"):
+        app_id = db.create_app(name)
+        db.update_app(app_id, status="live", host_port=24000 + app_id,
+                      backend_port=31000 + app_id, front_pid=1, pid=2)
+
+    taken: list[str] = []
+    monkeypatch.setattr(thumbs, "capture",
+                        lambda name, url: taken.append(name) or True)
+    monkeypatch.setattr(thumbs, "has_thumb", lambda name: name in taken)
+    monkeypatch.setattr(supervisor, "_front_alive", lambda row: True)
+    monkeypatch.setattr(supervisor, "_backend_alive", lambda row: True)
+    monkeypatch.setattr(supervisor.native, "memory_mb", lambda pid: 10.0)
+    supervisor._pictured.clear()
+
+    # One per pass, so a dozen browsers never start at once.
+    supervisor.check_once()
+    _join_picture_threads()
+    assert len(taken) == 1
+
+    supervisor.check_once()
+    _join_picture_threads()
+    assert sorted(taken) == ["alpha", "beta"]
+
+    # And once everything has one, it stops asking.
+    supervisor.check_once()
+    _join_picture_threads()
+    assert len(taken) == 2
+
+
+def test_an_app_whose_picture_fails_is_not_retried_every_pass(data_dir, monkeypatch):
+    """A browser that cannot photograph one app will not manage it fifteen
+    seconds later either."""
+    from launcher import db, supervisor, thumbs
+
+    db.init()
+    app_id = db.create_app("stubborn")
+    db.update_app(app_id, status="live", host_port=24817, backend_port=31000,
+                  front_pid=1, pid=2)
+
+    attempts: list[str] = []
+    monkeypatch.setattr(thumbs, "capture",
+                        lambda name, url: attempts.append(name) or False)
+    monkeypatch.setattr(thumbs, "has_thumb", lambda name: False)
+    monkeypatch.setattr(supervisor, "_front_alive", lambda row: True)
+    monkeypatch.setattr(supervisor, "_backend_alive", lambda row: True)
+    monkeypatch.setattr(supervisor.native, "memory_mb", lambda pid: 10.0)
+    supervisor._pictured.clear()
+
+    for _ in range(5):
+        supervisor.check_once()
+        _join_picture_threads()
+
+    assert attempts == ["stubborn"], "tried once, not on every pass forever"
+
+
+def _join_picture_threads() -> None:
+    import threading
+    for thread in threading.enumerate():
+        if thread.name.startswith("picture-"):
+            thread.join(timeout=5)

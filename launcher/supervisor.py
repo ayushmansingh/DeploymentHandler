@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import appdata, config, db, detect, metrics, native, ports, runtime
+from . import appdata, config, db, detect, metrics, native, ports, runtime, thumbs
 
 _thread: threading.Thread | None = None
 _stop = threading.Event()
@@ -168,6 +168,50 @@ def check_once() -> None:
                 launch(row)
         else:
             _strikes.pop(app_id, None)
+
+    _catch_up_on_one_picture()
+
+
+# Apps whose picture we have already tried this run. A browser that cannot
+# photograph a particular app will not manage it fifteen seconds later
+# either, so it is tried once rather than on every pass forever.
+_pictured: set[str] = set()
+_picturing = threading.Lock()
+
+
+def _catch_up_on_one_picture() -> None:
+    """Photograph one live app that has no picture yet.
+
+    Capture happens on deploy, so apps that were already running when this
+    arrived would have sat on a generated tile until somebody redeployed them
+    one by one. One per pass fills them in by itself, without a dozen browsers
+    starting at once.
+
+    It runs on its own thread: a capture is allowed up to forty seconds, and
+    nothing about restarting a dead app should wait behind a screenshot.
+    """
+    if not config.SCREENSHOTS_ENABLED or _picturing.locked():
+        return
+
+    for row in db.list_apps():
+        name = row["name"]
+        if row["status"] != "live" or not row["host_port"]:
+            continue
+        if name in _pictured or thumbs.has_thumb(name):
+            continue
+
+        _pictured.add(name)
+        port = row["host_port"]
+
+        def take() -> None:
+            with _picturing:
+                try:
+                    thumbs.capture(name, f"http://127.0.0.1:{port}/")
+                except Exception:  # pragma: no cover - decoration, never fatal
+                    pass
+
+        threading.Thread(target=take, name=f"picture-{name}", daemon=True).start()
+        return
 
 
 def _is_serving(app_row) -> bool:

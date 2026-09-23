@@ -405,6 +405,11 @@ shows it on the dashboard card. Windows 11 ships Edge, which is Chromium and
 takes a screenshot from the command line, so this needs nothing installed and
 no administrator. Chrome is used if present instead.
 
+Apps that were already running when this arrived do not need redeploying: the
+supervisor photographs one app that has no picture on each pass, so they fill
+in by themselves within a few minutes. An app whose capture fails is tried
+once rather than on every pass.
+
 There is always something to look at: an app with no picture — no browser on
 the server, a capture that failed, an app that has never started — gets a tile
 drawn from its own name, so a card is never a broken image. **Retake picture**
