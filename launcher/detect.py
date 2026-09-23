@@ -239,7 +239,7 @@ def _as_default(value: object, name: str) -> str:
     return text
 
 
-def _parse_settings(data: dict) -> list[SettingSpec]:
+def _parse_settings(data: dict) -> tuple[list[SettingSpec], list[str]]:
     """Read the `settings:` list, accepting either names or name/description.
 
     Validated here rather than at launch: a mistyped name would otherwise be
@@ -252,6 +252,7 @@ def _parse_settings(data: dict) -> list[SettingSpec]:
         )
 
     declared: list[SettingSpec] = []
+    ignored: list[str] = []
     for entry in raw:
         required = True
         default = None
@@ -268,6 +269,14 @@ def _parse_settings(data: dict) -> list[SettingSpec]:
                 "Each item under `settings` should be a name, or a name and a "
                 "description."
             )
+        # The server supplies PORT, APP_DATA_DIR and PYTHONUNBUFFERED itself.
+        # An app genuinely does read them, and the prompt tells it to, so an
+        # assistant that declares them has misunderstood one instruction
+        # rather than built a broken app. Drop the line and say so, instead of
+        # refusing a ZIP that would otherwise run perfectly well.
+        if name.strip() in app_settings.RESERVED:
+            ignored.append(name.strip())
+            continue
         try:
             name = app_settings.clean_key(name)
         except app_settings.InvalidSetting as exc:
@@ -283,7 +292,7 @@ def _parse_settings(data: dict) -> list[SettingSpec]:
         raise DetectionError(
             "launcher.yaml lists the same setting twice: " + ", ".join(sorted(duplicates))
         )
-    return declared
+    return declared, ignored
 
 
 def _from_manifest(root: Path, data: dict) -> Spec:
@@ -310,7 +319,13 @@ def _from_manifest(root: Path, data: dict) -> Spec:
             output=fe.get("output", "dist"),
         )
 
-    declared = _parse_settings(data)
+    declared, ignored = _parse_settings(data)
+    if ignored:
+        notes.append(
+            "Ignored " + ", ".join(ignored) + " under `settings:` - the server "
+            "sets those itself and passes them to the app. Read them with "
+            "os.environ as usual; just do not declare them."
+        )
 
     if backend is None and frontend is None:
         # The manifest named neither, which in practice means a `backend:` that

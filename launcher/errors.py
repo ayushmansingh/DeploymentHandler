@@ -165,8 +165,11 @@ def repair_prompt(app_name: str, diagnosis: Diagnosis, log_text: str) -> str:
         "- ALL frontend API calls use relative paths starting with /api",
         "  (for example fetch(\"/api/items\") - never http://localhost:8000)",
         "- Read settings from the environment, e.g. os.environ.get(\"API_KEY\", \"\"),",
-        "  and declare their names under `settings:` in launcher.yaml. Never put",
-        "  the values in the ZIP",
+        "  and declare under `settings:` in launcher.yaml the ones a PERSON must",
+        "  supply. Never put the values in the ZIP",
+        "- PORT, APP_DATA_DIR and PYTHONUNBUFFERED are set by the server. Read",
+        "  them from the environment as normal, but do NOT list them under",
+        "  `settings:` - they are the server's to provide, not yours to ask for",
         "- Do not include node_modules or .venv in the ZIP",
     ]
     return "\n".join(parts)

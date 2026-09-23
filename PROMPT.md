@@ -54,8 +54,16 @@ LAUNCHER.YAML - ONE FILE AT THE ROOT OF THE ZIP
           default: 50
 
 SETTINGS THE APP NEEDS
-- Every setting the app reads from the environment goes under `settings:` in
-  that file. Do not ship a .env file for these
+- Settings the app needs a PERSON to supply go under `settings:` in that
+  file. Do not ship a .env file for these
+- The server sets three variables itself and passes them in. Read them with
+  os.environ exactly as normal, but NEVER list them under `settings:`:
+      PORT              the port to listen on
+      APP_DATA_DIR      where to write anything worth keeping
+      PYTHONUNBUFFERED  so your logs appear straight away
+  Declaring one of those is the most common launcher.yaml mistake, because
+  the app really does read it - but it is the server's to provide, not
+  yours to ask for
 - Three kinds, and the difference matters:
     SECRET - a key, token or password. Name it, never write the value. A
       person types it into the server and the app starts once they have

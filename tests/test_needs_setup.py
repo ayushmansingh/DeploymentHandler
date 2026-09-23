@@ -57,13 +57,39 @@ def test_a_mistyped_name_is_caught_at_deploy_time(tmp_path):
         detect.detect(tmp_path)
 
 
-def test_a_reserved_name_is_refused(tmp_path):
+def test_a_server_supplied_name_is_dropped_rather_than_refused(tmp_path):
+    """The prompt tells an app to read APP_DATA_DIR from the environment, and
+    separately to declare every setting it reads. Following both puts
+    APP_DATA_DIR under `settings:`, which used to fail the whole deploy - for
+    a ZIP that would otherwise have run perfectly well."""
     write(tmp_path, {
         **BACKEND,
-        "launcher.yaml": "backend:\n  path: ./backend\nsettings:\n  - APP_DATA_DIR\n",
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\n"
+            "settings:\n  - APP_DATA_DIR\n  - PORT\n  - REDASH_API_KEY\n"
+        ),
     })
-    with pytest.raises(detect.DetectionError, match="set by the server itself"):
-        detect.detect(tmp_path)
+
+    spec = detect.detect(tmp_path)
+
+    assert [d.name for d in spec.settings] == ["REDASH_API_KEY"], (
+        "the app's own setting survives; the server's are dropped"
+    )
+    note = next(n for n in spec.notes if "Ignored" in n)
+    assert "APP_DATA_DIR" in note and "PORT" in note
+    assert "do not declare them" in note, "say what to do instead"
+
+
+def test_a_setting_named_like_a_reserved_one_is_still_kept(tmp_path):
+    """Only the exact names are the server's. APP_DATA_PATH is the app's."""
+    write(tmp_path, {
+        **BACKEND,
+        "launcher.yaml": (
+            "backend:\n  path: ./backend\nsettings:\n  - APP_DATA_PATH\n"
+        ),
+    })
+    spec = detect.detect(tmp_path)
+    assert [d.name for d in spec.settings] == ["APP_DATA_PATH"]
 
 
 def test_the_same_setting_twice_is_refused(tmp_path):
