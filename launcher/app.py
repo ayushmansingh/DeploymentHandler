@@ -14,12 +14,12 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import (FileResponse, HTMLResponse, PlainTextResponse,
-                               RedirectResponse)
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               PlainTextResponse, RedirectResponse)
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
-from . import appdata, config, db, deployer, errors, files, hostinfo, metrics, naming, native
+from . import appdata, auth, config, db, deployer, errors, files, hostinfo, metrics, naming, native
 from . import selfupdate, settings as app_settings, thumbs
 from . import ports
 from . import runtime
@@ -47,6 +47,37 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="App Launcher", docs_url=None, redoc_url=None, lifespan=lifespan
 )
+
+# Reachable without the password. /healthz is not optional: the update helper
+# polls it to decide whether a new version came back, so gating it would make
+# every self-update look like a failure and roll itself back.
+_OPEN_PATHS = frozenset({"/login", "/healthz", "/favicon.ico"})
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    """Put the dashboard behind the password, and nothing else behind it.
+
+    The deployed apps run in their own processes on their own ports and never
+    reach this middleware, so every link already shared with colleagues keeps
+    working whether or not a password is set.
+    """
+    if not auth.required() or request.url.path in _OPEN_PATHS:
+        return await call_next(request)
+
+    if auth.valid(request.cookies.get(auth.COOKIE)):
+        return await call_next(request)
+
+    # An API caller gets an answer it can act on; a browser gets the form,
+    # with where it was headed so it lands there after signing in.
+    accepts = request.headers.get("accept", "")
+    if request.url.path.startswith("/api/") or "application/json" in accepts:
+        return JSONResponse({"detail": "Password required"}, status_code=401)
+
+    destination = request.url.path
+    if request.url.query:
+        destination += f"?{request.url.query}"
+    return RedirectResponse(f"/login?next={quote(destination)}", status_code=303)
 
 
 def _fmt_time(value: float | None) -> str:
@@ -197,7 +228,49 @@ def _grid_context(request: Request | None = None) -> dict:
 
 def _nav(active: str) -> dict:
     """Shared chrome: which tab is current, and the count beside Dashboard."""
-    return {"active_tab": active, "nav_app_count": len(db.list_apps())}
+    return {
+        "active_tab": active,
+        "nav_app_count": len(db.list_apps()),
+        "password_set": auth.required(),
+    }
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/", bad: str = ""):
+    if not auth.required() or auth.valid(request.cookies.get(auth.COOKIE)):
+        return RedirectResponse(next or "/", status_code=303)
+    return templates.TemplateResponse(
+        request, "login.html", {"next": next or "/", "bad": bool(bad)}
+    )
+
+
+@app.post("/login")
+async def do_login(request: Request, password: str = Form(""), next: str = Form("/")):
+    # Somewhere else on this server, or nowhere. An attacker-supplied `next`
+    # must not be able to bounce somebody off to another site.
+    destination = next if next.startswith("/") and not next.startswith("//") else "/"
+    if not auth.check(password):
+        return RedirectResponse(
+            f"/login?bad=1&next={quote(destination)}", status_code=303
+        )
+
+    response = RedirectResponse(destination, status_code=303)
+    response.set_cookie(
+        auth.COOKIE, auth.issue(),
+        max_age=auth.SESSION_DAYS * 86400,
+        httponly=True,        # not readable by an app's JavaScript
+        samesite="lax",
+        # Not `secure`: this server speaks plain HTTP, and a secure cookie
+        # would simply never be sent back.
+    )
+    return response
+
+
+@app.post("/logout")
+def do_logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(auth.COOKIE)
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)

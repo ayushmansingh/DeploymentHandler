@@ -11,6 +11,12 @@ REM out by the network does not. Setting an address here only pins a value
 REM that stops being true the next time this machine restarts.
 set LAUNCHER_PUBLIC_HOST=
 
+REM Password for the dashboard. It stops somebody stopping or deleting an app
+REM by accident; it is not real security, because this server speaks plain
+REM HTTP on the office LAN. Change it here. Leave it empty for no password.
+REM The deployed apps are NOT affected - links already shared keep working.
+set LAUNCHER_PASSWORD=Server123
+
 REM Where uploads, app files, logs and saved app data are kept. Back this up.
 REM Do NOT put this under %LOCALAPPDATA%: Python installed from the Microsoft
 REM Store redirects writes there into a private folder, and every deploy fails.

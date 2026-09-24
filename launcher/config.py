@@ -100,6 +100,12 @@ RUNTIME_LOG_MAX_BYTES = _env_int("LAUNCHER_RUNTIME_LOG_MB", 16) * 1024 * 1024
 # A picture of each app's home page for the dashboard. Windows 11 ships Edge,
 # which takes the screenshot from the command line, so this normally needs no
 # setup. Point it at a specific browser, or set it to "off", if wanted.
+# A password on the dashboard. This guards against a mistake - somebody
+# stopping or deleting an app they did not mean to - rather than against
+# anyone determined: the server speaks plain HTTP on the office LAN. Leave it
+# empty to let anyone who can reach the server use it.
+PASSWORD = os.environ.get("LAUNCHER_PASSWORD", "").strip()
+
 SCREENSHOT_BROWSER = os.environ.get("LAUNCHER_SCREENSHOT_BROWSER", "").strip()
 SCREENSHOTS_ENABLED = SCREENSHOT_BROWSER.lower() != "off"
 

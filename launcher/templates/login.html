@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block body %}
+<div style="max-width:420px;margin:8vh auto 0">
+  <div class="card">
+    <h1 style="font-size:22px;margin:0 0 6px">App Launcher</h1>
+    <p class="muted" style="font-size:13.5px;margin:0 0 18px">
+      The dashboard is behind a password so an app cannot be stopped or
+      deleted by accident. The apps themselves are not affected — any link
+      already shared with your team keeps working.</p>
+
+    {% if bad %}
+      <div class="banner bad" style="margin-bottom:16px">
+        That password was not right. Try again.</div>
+    {% endif %}
+
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label for="password">Password</label>
+      {# autofocus so it is ready to type into, and the browser can remember
+         it like any other sign-in. #}
+      <input type="password" id="password" name="password"
+             autocomplete="current-password" autofocus required>
+      <p style="margin:18px 0 0">
+        <button type="submit" class="primary">Sign in</button></p>
+    </form>
+  </div>
+
+  <p class="muted" style="font-size:12.5px;margin:14px 2px 0">
+    Ask whoever set this server up if you do not have the password.
+  </p>
+</div>
+{% endblock %}

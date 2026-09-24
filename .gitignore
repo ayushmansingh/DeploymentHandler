@@ -11,3 +11,6 @@ data/
 
 # Created from settings.example.cmd on first run; never shipped.
 deploy/settings.cmd
+
+# Cookie-signing secret, generated per install.
+session.key

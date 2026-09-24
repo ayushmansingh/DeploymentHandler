@@ -330,6 +330,13 @@
       <a class="tab {{ 'on' if active_tab == 'deploy' }}" href="/deploy">Deploy</a>
       <a class="tab {{ 'on' if active_tab == 'server' }}" href="/admin/update">Server</a>
     </nav>
+    {# Only shown when a password is actually set, so a server without one is
+       not cluttered by a control that does nothing. #}
+    {% if password_set %}
+    <form method="post" action="/logout" style="margin-left:auto">
+      <button class="tab" style="background:none;border:0;cursor:pointer;font:inherit"
+              title="Sign out of the dashboard">Sign out</button></form>
+    {% endif %}
   </div>
 </header>
 <main>{% block body %}{% endblock %}</main>
