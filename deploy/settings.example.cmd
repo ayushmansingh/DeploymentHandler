@@ -11,10 +11,12 @@ REM out by the network does not. Setting an address here only pins a value
 REM that stops being true the next time this machine restarts.
 set LAUNCHER_PUBLIC_HOST=
 
-REM Password for the dashboard. It stops somebody stopping or deleting an app
-REM by accident; it is not real security, because this server speaks plain
-REM HTTP on the office LAN. Change it here. Leave it empty for no password.
-REM The deployed apps are NOT affected - links already shared keep working.
+REM Password for the SERVER TAB only - the page that updates and restarts the
+REM launcher itself. The dashboard, deploying, and stopping or starting an app
+REM stay open to everyone, and the deployed apps are NOT affected: links
+REM already shared keep working. It stops a mistake, not a determined person,
+REM because this server speaks plain HTTP on the office LAN.
+REM Change it here. Leave it empty for no password at all.
 set LAUNCHER_PASSWORD=Server123
 
 REM Where uploads, app files, logs and saved app data are kept. Back this up.

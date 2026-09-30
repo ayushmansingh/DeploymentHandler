@@ -48,30 +48,37 @@ app = FastAPI(
     title="App Launcher", docs_url=None, redoc_url=None, lifespan=lifespan
 )
 
-# Reachable without the password. /healthz is not optional: the update helper
-# polls it to decide whether a new version came back, so gating it would make
-# every self-update look like a failure and roll itself back.
-_OPEN_PATHS = frozenset({"/login", "/healthz", "/favicon.ico"})
+# The Server tab, and nothing else. This is where the launcher updates and
+# restarts itself, which is the mistake worth a deliberate step; deploying,
+# stopping and starting an app are everyday work for the whole team and stay
+# open. Written as a closed list rather than a list of exceptions, so a route
+# added later is open unless somebody decides otherwise.
+_GUARDED_PREFIX = "/admin"
+
+
+def _is_guarded(path: str) -> bool:
+    return path == _GUARDED_PREFIX or path.startswith(_GUARDED_PREFIX + "/")
 
 
 @app.middleware("http")
 async def require_password(request: Request, call_next):
-    """Put the dashboard behind the password, and nothing else behind it.
+    """Put the Server tab behind the password, and nothing else behind it.
 
     The deployed apps run in their own processes on their own ports and never
     reach this middleware, so every link already shared with colleagues keeps
     working whether or not a password is set.
     """
-    if not auth.required() or request.url.path in _OPEN_PATHS:
+    if not auth.required() or not _is_guarded(request.url.path):
         return await call_next(request)
 
     if auth.valid(request.cookies.get(auth.COOKIE)):
         return await call_next(request)
 
-    # An API caller gets an answer it can act on; a browser gets the form,
-    # with where it was headed so it lands there after signing in.
-    accepts = request.headers.get("accept", "")
-    if request.url.path.startswith("/api/") or "application/json" in accepts:
+    # A script gets an answer it can act on; a browser gets the form, with
+    # where it was headed so it lands there after signing in. (/api/ is not
+    # checked here any more: nothing under /api/ is guarded, so a test for it
+    # would only suggest otherwise.)
+    if "application/json" in request.headers.get("accept", ""):
         return JSONResponse({"detail": "Password required"}, status_code=401)
 
     destination = request.url.path
@@ -226,12 +233,20 @@ def _grid_context(request: Request | None = None) -> dict:
     }
 
 
-def _nav(active: str) -> dict:
-    """Shared chrome: which tab is current, and the count beside Dashboard."""
+def _nav(active: str, request: Request | None = None) -> dict:
+    """Shared chrome: which tab is current, and the count beside Dashboard.
+
+    `signed_in` decides whether Sign out is offered. It is not the same as
+    "a password is set": most people never sign in at all, because only the
+    Server tab asks, and a Sign out button for a session they do not have
+    would be a control that does nothing.
+    """
+    token = request.cookies.get(auth.COOKIE) if request is not None else None
     return {
         "active_tab": active,
         "nav_app_count": len(db.list_apps()),
         "password_set": auth.required(),
+        "signed_in": auth.required() and auth.valid(token),
     }
 
 
@@ -279,7 +294,7 @@ def dashboard(request: Request):
     return templates.TemplateResponse(
         request, "index.html",
         {
-            **_grid_context(request), **_nav("dashboard"),
+            **_grid_context(request), **_nav("dashboard", request),
             "runtime_ready": ready, "runtime_problem": problem,
         },
     )
@@ -291,7 +306,7 @@ def deploy_page(request: Request):
     return templates.TemplateResponse(
         request, "deploy.html",
         {
-            **_nav("deploy"), "app_count": len(db.list_apps()),
+            **_nav("deploy", request), "app_count": len(db.list_apps()),
             "runtime_ready": ready, "runtime_problem": problem,
         },
     )
@@ -467,7 +482,7 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
     return templates.TemplateResponse(
         request, "detail.html",
         {
-            **_nav("dashboard"),
+            **_nav("dashboard", request),
             "app": row,
             "url": _app_url(row, request),
             "deploys": deploys,
@@ -906,7 +921,7 @@ def _admin_context(request: Request, **extra) -> dict:
     with it.
     """
     context = {
-        **_nav("server"),
+        **_nav("server", request),
         "version": __version__,
         "started_at": _started_at,
         "installed_at": selfupdate.installed_at(),
@@ -1049,6 +1064,6 @@ def _notice_page(message: str) -> HTMLResponse:
 
 def _error_page(request: Request, message: str) -> HTMLResponse:
     return templates.TemplateResponse(
-        request, "error.html", {**_nav("deploy"), "message": message},
+        request, "error.html", {**_nav("deploy", request), "message": message},
         status_code=400,
     )

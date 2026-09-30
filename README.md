@@ -398,22 +398,32 @@ block with `path:` under it. A string, a list, or a key named `api:`,
 neither falls back to auto-detection rather than failing the deploy, keeps
 the settings it declared, and notes what happened in the log.
 
-## A password on the dashboard
+## A password on the Server tab
 
-Set `LAUNCHER_PASSWORD` in `deploy\settings.cmd` and the dashboard asks for it
-once, then remembers for a fortnight. Leave it empty and there is no password
-at all.
+Set `LAUNCHER_PASSWORD` in `deploy\settings.cmd` and the **Server tab** asks
+for it once, then remembers for a fortnight. Leave it empty and there is no
+password at all.
 
-This guards against a **mistake** — somebody stopping or deleting an app they
-did not mean to — and not against anyone determined: the server speaks plain
-HTTP on the office LAN, so the password crosses the network readable by anyone
-already able to watch the traffic.
+Only that tab. It is where the launcher updates and restarts *itself*, which
+is the one action that takes everybody's apps down at once — worth a
+deliberate step. Everything else stays open: the dashboard, the Deploy page,
+and Stop, Start and Delete on an app. Those are everyday work for the whole
+team, and putting them behind a password would not protect them, it would just
+teach everyone the password.
 
-Two things stay open on purpose. **The deployed apps are not affected** — they
-run in their own processes on their own ports, so every link already shared
-with your team keeps working. And `/healthz` stays reachable, because the
-update helper polls it to decide whether a new version came back; behind the
-password, every self-update would look like a failure and roll itself back.
+This guards against a **mistake**, not against anyone determined: the server
+speaks plain HTTP on the office LAN, so the password crosses the network
+readable by anyone already able to watch the traffic.
+
+**The deployed apps are not affected** — they run in their own processes on
+their own ports, so every link already shared with your team keeps working.
+`/healthz` is not gated either, because the update helper polls it to decide
+whether a new version came back; behind the password, every self-update would
+look like a failure and roll itself back.
+
+The rule is a closed list — `/admin` and below — rather than a list of
+exceptions, so a page added later is open unless somebody decides it should
+not be.
 
 ## Each app shows a picture of itself
 
