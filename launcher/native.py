@@ -317,30 +317,43 @@ def start(app_name: str, src: Path, spec: Spec, public_port: int,
 # Process control
 # ---------------------------------------------------------------------------
 
-def _kill_tree(pid: int) -> None:
-    """Kill a process and its children.
+def _kill_tree(pid: int, marker: str | None = None) -> None:
+    """Kill a process and its children, if it is still ours to kill.
 
     Children matter: npm and uvicorn both spawn workers that outlive the
     parent and would keep the port bound, so the next deploy would fail to
     bind with no obvious cause.
+
+    The marker matters more. A recorded pid does not belong to nothing after a
+    reboot - it belongs to something else, because the operating system hands
+    the number out again. Without this check the launcher terminated whatever
+    now held it: on Windows that was refused with AccessDenied, which escaped
+    and stopped the launcher booting at all, and where it is not refused it
+    would have killed an unrelated program.
     """
     try:
         parent = psutil.Process(pid)
-    except psutil.NoSuchProcess:
+        if marker is not None and marker not in " ".join(parent.cmdline()):
+            return  # someone else's process wearing our old number
+        children = parent.children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        # Gone, or not ours to look at. Either way there is nothing to stop.
         return
 
-    children = parent.children(recursive=True)
     for proc in (*children, parent):
         try:
             proc.terminate()
-        except psutil.NoSuchProcess:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
-    _, alive = psutil.wait_procs((*children, parent), timeout=10)
+    try:
+        _, alive = psutil.wait_procs((*children, parent), timeout=10)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return
     for proc in alive:
         try:
             proc.kill()
-        except psutil.NoSuchProcess:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
 
@@ -364,10 +377,19 @@ def is_running(pid: int | None, marker: str | None = None) -> bool:
         return False
 
 
-def stop(processes: Processes) -> None:
-    for pid in (processes.front_pid, processes.backend_pid):
+def stop(processes: Processes, front_marker: str | None = None,
+         backend_marker: str | None = None) -> None:
+    """Stop the processes we started, and only those.
+
+    The markers are what tell our process from whatever inherited its pid.
+    Callers that have them should pass them; the caller that does not is
+    stopping something it started moments ago, where reuse cannot have
+    happened yet.
+    """
+    for pid, marker in ((processes.front_pid, front_marker),
+                        (processes.backend_pid, backend_marker)):
         if pid:
-            _kill_tree(pid)
+            _kill_tree(pid, marker)
 
 
 def memory_mb(pid: int | None) -> float:

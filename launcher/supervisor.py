@@ -97,25 +97,41 @@ def launch(app_row, reason: str = "") -> bool:
 
 
 def stop(app_row) -> None:
-    """Stop an app's processes, leaving its record and ports in place."""
+    """Stop an app's processes, leaving its record and ports in place.
+
+    The same markers the health checks use decide whether a recorded pid is
+    still ours, so a number the operating system has since handed to another
+    program is left alone rather than terminated.
+    """
     native.stop(
         native.Processes(
             front_pid=app_row["front_pid"],
             backend_pid=app_row["pid"],
-        )
+        ),
+        front_marker=_front_marker(app_row),
+        backend_marker=_backend_marker(app_row),
     )
     db.update_app(int(app_row["id"]), pid=None, front_pid=None)
 
 
+def _front_marker(app_row) -> str | None:
+    port = app_row["host_port"]
+    return f"--port {port}" if port else None
+
+
+def _backend_marker(app_row) -> str | None:
+    port = app_row["backend_port"]
+    return str(port) if port else None
+
+
 def _front_alive(app_row) -> bool:
-    marker = f"--port {app_row['host_port']}"
-    return native.is_running(app_row["front_pid"], marker)
+    return native.is_running(app_row["front_pid"], _front_marker(app_row))
 
 
 def _backend_alive(app_row) -> bool:
     if not app_row["backend_port"]:
         return True  # this app has no backend, so nothing to miss
-    return native.is_running(app_row["pid"], str(app_row["backend_port"]))
+    return native.is_running(app_row["pid"], _backend_marker(app_row))
 
 
 def check_once() -> None:
@@ -249,8 +265,9 @@ def recover_interrupted_deploys() -> None:
 def restore_on_startup() -> None:
     """Bring back apps that were running when the launcher last stopped.
 
-    After a machine restart the recorded pids belong to nothing, so anything
-    marked live is started again from its existing files. Nothing is rebuilt:
+    After a machine restart the recorded pids belong to other programs, not
+    to nothing, so they are checked before anything is stopped. Anything
+    marked live is then started again from its existing files. Nothing is rebuilt:
     the environment and the built frontend are already on disk, so this is a
     matter of seconds rather than minutes.
     """
@@ -260,7 +277,15 @@ def restore_on_startup() -> None:
             continue
         if _front_alive(row) and _backend_alive(row):
             continue  # survived a launcher restart; leave it alone
-        launch(row, reason="Starting after the launcher restarted.")
+        # One app that cannot be brought back must not stop the launcher
+        # starting. It used to: an unkillable stale pid raised here, the
+        # exception reached uvicorn, and the whole server refused to boot
+        # over a single app.
+        try:
+            launch(row, reason="Starting after the launcher restarted.")
+        except Exception as exc:  # noqa: BLE001 - one app, not the server
+            _log(row["name"], f"Could not start it after the restart: {exc}")
+            db.update_app(int(row["id"]), status="failed")
 
 
 def _loop() -> None:

@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 
+import psutil
 import pytest
 
 from launcher import config, detect, native
@@ -223,3 +224,96 @@ def test_no_text_file_is_read_at_the_mercy_of_the_platform_encoding():
         "these read or write text without naming an encoding:\n"
         + "\n".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# Stopping the right process
+# ---------------------------------------------------------------------------
+
+class FakeProc:
+    """Enough of psutil.Process to prove what stop() does and does not kill."""
+
+    def __init__(self, pid: int, cmdline: list[str], *,
+                 protected: bool = False, children: list["FakeProc"] | None = None):
+        self.pid = pid
+        self._cmdline = cmdline
+        self._protected = protected
+        self._children = children or []
+        self.terminated = False
+        self.killed = False
+
+    def cmdline(self):
+        return self._cmdline
+
+    def children(self, recursive: bool = False):
+        return list(self._children)
+
+    def terminate(self):
+        if self._protected:
+            raise psutil.AccessDenied(self.pid)
+        self.terminated = True
+
+    def kill(self):
+        if self._protected:
+            raise psutil.AccessDenied(self.pid)
+        self.killed = True
+
+
+def fake_table(monkeypatch, table: dict[int, FakeProc]) -> None:
+    def process(pid):
+        try:
+            return table[pid]
+        except KeyError:
+            raise psutil.NoSuchProcess(pid) from None
+
+    monkeypatch.setattr(native.psutil, "Process", process)
+    monkeypatch.setattr(native.psutil, "wait_procs", lambda procs, timeout=None: ([], []))
+
+
+def test_stop_kills_our_own_process_and_its_children(monkeypatch):
+    child = FakeProc(3001, ["node", "worker"])
+    ours = FakeProc(2780, ["python", "-m", "uvicorn", "--port", "30412"],
+                    children=[child])
+    fake_table(monkeypatch, {2780: ours})
+
+    native.stop(native.Processes(backend_pid=2780), backend_marker="30412")
+
+    assert ours.terminated, "our own backend must still be stopped"
+    assert child.terminated, "a worker left holding the port would break the next deploy"
+
+
+def test_stop_leaves_alone_a_pid_that_now_belongs_to_something_else(monkeypatch):
+    """After a reboot a recorded pid belongs to another program, not to nothing.
+
+    Terminating it was both wrong and fatal: on Windows the refusal came back
+    as AccessDenied out of stop(), which stopped the launcher booting.
+    """
+    stranger = FakeProc(2780, ["C:/Windows/explorer.exe"])
+    fake_table(monkeypatch, {2780: stranger})
+
+    native.stop(native.Processes(backend_pid=2780), backend_marker="30412")
+
+    assert not stranger.terminated and not stranger.killed
+
+
+def test_stop_survives_a_process_it_is_not_allowed_to_touch(monkeypatch):
+    """The exception that stopped the launcher starting must never escape.
+
+    The marker catches this first in practice, so this covers the case where
+    the pid was genuinely ours and the operating system still said no.
+    """
+    guarded = FakeProc(2780, ["python", "-m", "uvicorn", "--port", "30412"],
+                       protected=True)
+    fake_table(monkeypatch, {2780: guarded})
+
+    native.stop(native.Processes(backend_pid=2780), backend_marker="30412")
+
+
+def test_stop_without_markers_still_stops_something_just_started(monkeypatch):
+    """A caller stopping a process it spawned moments ago has no marker."""
+    ours = FakeProc(2780, ["python", "-m", "uvicorn"])
+    fake_table(monkeypatch, {2780: ours})
+
+    native.stop(native.Processes(backend_pid=2780))
+
+    assert ours.terminated

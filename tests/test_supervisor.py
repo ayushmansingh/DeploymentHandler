@@ -25,7 +25,7 @@ def live_app(data_dir, monkeypatch):
 def relaunches(monkeypatch):
     """Record launches instead of starting real processes."""
     calls: list[str] = []
-    monkeypatch.setattr(native, "stop", lambda procs: None)
+    monkeypatch.setattr(native, "stop", lambda procs, **markers: None)
     monkeypatch.setattr(
         native, "start",
         lambda *a, **k: (calls.append(a[0]) or native.Processes(front_pid=2002, backend_pid=2001)),
@@ -115,13 +115,37 @@ def test_launch_reports_missing_files_instead_of_crashing(live_app, relaunches, 
 
 def test_stop_clears_recorded_pids(live_app, monkeypatch):
     stopped: list = []
-    monkeypatch.setattr(native, "stop", lambda procs: stopped.append(procs))
+    monkeypatch.setattr(
+        native, "stop",
+        lambda procs, **markers: stopped.append((procs, markers)),
+    )
 
     supervisor.stop(live_app)
 
-    assert stopped[0].front_pid == 1002 and stopped[0].backend_pid == 1001
+    procs, markers = stopped[0]
+    assert procs.front_pid == 1002 and procs.backend_pid == 1001
     after = db.get_app_by_name("alpha")
     assert after["pid"] is None and after["front_pid"] is None
+
+
+def test_stop_passes_the_markers_the_health_checks_use(live_app, monkeypatch):
+    """Without them a reused pid gets killed - see native._kill_tree.
+
+    They are asserted here rather than in native because the bug was a
+    caller that had the markers and did not pass them, not a kill that
+    ignored one it was given.
+    """
+    stopped: list = []
+    monkeypatch.setattr(
+        native, "stop",
+        lambda procs, **markers: stopped.append((procs, markers)),
+    )
+
+    supervisor.stop(live_app)
+
+    _, markers = stopped[0]
+    assert markers["front_marker"] == "--port 24817"
+    assert markers["backend_marker"] == "30412"
 
 
 def test_restore_starts_apps_that_did_not_survive_a_reboot(live_app, relaunches, monkeypatch):
@@ -324,3 +348,52 @@ def _join_picture_threads() -> None:
     for thread in threading.enumerate():
         if thread.name.startswith("picture-"):
             thread.join(timeout=5)
+
+
+def test_one_app_that_cannot_be_started_does_not_stop_the_launcher(live_app, monkeypatch):
+    """This is the bug that took the server down, not just one dashboard card.
+
+    An old pid that the machine refused to let us terminate raised
+    psutil.AccessDenied out of launch(); nothing caught it, so it reached
+    uvicorn's startup and the launcher exited instead of serving.
+    """
+    import psutil
+
+    db.create_app("beta")
+    beta = db.get_app_by_name("beta")
+    db.update_app(int(beta["id"]), status="live", host_port=24818,
+                  backend_port=30413, pid=2001, front_pid=2002)
+    src = config.SRC_DIR / "beta"
+    (src / "backend").mkdir(parents=True)
+    (src / "backend" / "requirements.txt").write_text("fastapi\n")
+    (src / "backend" / "main.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n")
+
+    alive(monkeypatch, False)
+    started: list[str] = []
+
+    def stop_or_refuse(app_row):
+        if app_row["name"] == "alpha":
+            raise psutil.AccessDenied(2780)
+
+    monkeypatch.setattr(supervisor, "stop", stop_or_refuse)
+    monkeypatch.setattr(native, "start", lambda *a, **k: (
+        started.append(a[0]) or native.Processes(front_pid=9002, backend_pid=9001)))
+
+    supervisor.restore_on_startup()  # must not raise
+
+    assert started == ["beta"], "the other apps still come back"
+    assert db.get_app_by_name("alpha")["status"] == "failed"
+
+
+def test_a_failed_startup_says_so_in_the_apps_own_log(live_app, monkeypatch):
+    """Whoever looks at the app needs to see why, not an empty log."""
+    alive(monkeypatch, False)
+    monkeypatch.setattr(
+        supervisor, "stop",
+        lambda app_row: (_ for _ in ()).throw(RuntimeError("no such luck")),
+    )
+
+    supervisor.restore_on_startup()
+
+    log = (config.LOG_DIR / "alpha" / "runtime.log").read_text(encoding="utf-8")
+    assert "no such luck" in log
