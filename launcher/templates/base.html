@@ -4,55 +4,104 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}App Launcher{% endblock %}</title>
+<script>
+// Before anything is drawn, so a person who chose dark never sees the page
+// flash white on its way there. Runs in the head on purpose - deferring it
+// is what produces the flash.
+(function () {
+  var root = document.documentElement;
+  function stored() {
+    // Private windows and locked-down policies make localStorage throw
+    // rather than return null, and that must not stop the page rendering.
+    try { return localStorage.getItem("launcher-theme"); } catch (e) { return null; }
+  }
+  function apply() {
+    var choice = stored();
+    root.dataset.theme = (choice === "dark" || choice === "light") ? choice
+      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  }
+  apply();
+  // Follow the machine while nobody has chosen, so a laptop that turns dark
+  // in the evening takes the dashboard with it.
+  var watch = window.matchMedia("(prefers-color-scheme: dark)");
+  var onChange = function () { if (!stored()) apply(); };
+  if (watch.addEventListener) watch.addEventListener("change", onChange);
+  else if (watch.addListener) watch.addListener(onChange);
+  window.__setTheme = function (choice) {
+    root.dataset.theme = choice;
+    try { localStorage.setItem("launcher-theme", choice); } catch (e) {}
+  };
+})();
+</script>
 <style>
   /* Tokens. Status hues are fixed and never carry meaning alone - every meter
-     and pill shows a number or a word beside the colour. */
+     and pill shows a number or a word beside the colour.
+
+     Each colour is declared twice on purpose. The first line is a plain value
+     an old browser understands; the second replaces it with the light/dark
+     pair and is ignored by anything that does not know light-dark(), which
+     then simply stays on the light theme rather than losing the colour
+     altogether. Keeping both values on adjacent lines is also why the two
+     themes cannot quietly drift apart, which a second block of tokens
+     thirty lines further down always eventually does.
+
+     What decides which half is used is color-scheme, so the switch in the
+     header has one job: set color-scheme on <html>. With no choice stored
+     and no JavaScript, "light dark" means the machine's own setting wins. */
   :root {
+    color-scheme: light dark;
+
     --page: #f9f9f7;
+    --page: light-dark(#f9f9f7, #0d0d0d);
     --surface: #fcfcfb;
+    --surface: light-dark(#fcfcfb, #1a1a19);
     --ink: #0b0b0b;
+    --ink: light-dark(#0b0b0b, #ffffff);
     --ink-2: #52514e;
+    --ink-2: light-dark(#52514e, #c3c2b7);
     --muted: #898781;
     --line: rgba(11, 11, 11, .10);
+    --line: light-dark(rgba(11, 11, 11, .10), rgba(255, 255, 255, .12));
     --grid: #e1e0d9;
+    --grid: light-dark(#e1e0d9, #2c2c2a);
     --accent: #256abf;
+    --accent: light-dark(#256abf, #5598e7);
     --accent-hi: #1c5cab;
+    --accent-hi: light-dark(#1c5cab, #6da7ec);
+    /* White on the dark theme's lighter blue is about 3:1 - too weak for
+       button text - so there it is dark ink on a light accent instead. */
     --accent-ink: #ffffff;
+    --accent-ink: light-dark(#ffffff, #0b0b0b);
     --track: #cde2fb;
+    --track: light-dark(#cde2fb, #184f95);
     --good: #0ca30c;
     --good-ink: #006300;
+    --good-ink: light-dark(#006300, #0ca30c);
     --warning: #fab219;
     --warning-ink: #7a5200;
+    --warning-ink: light-dark(#7a5200, #fab219);
     --critical: #d03b3b;
     --critical-ink: #a32323;
+    --critical-ink: light-dark(#a32323, #e46b6b);
     /* Whoever deployed an app. A person is an identity, not a status and
        not a link, so it takes its own hue rather than borrowing one. */
     --person: #4a3aa7;
+    --person: light-dark(#4a3aa7, #9085e9);
+    /* The one value light-dark() cannot hold: it takes two arguments, and a
+       two-layer shadow already has a comma of its own. So this one is stated
+       twice, which is exactly the duplication the rest of the block avoids. */
     --shadow: 0 1px 2px rgba(11,11,11,.04), 0 4px 12px rgba(11,11,11,.05);
     --r: 12px;
   }
+
   @media (prefers-color-scheme: dark) {
-    :root {
-      --page: #0d0d0d;
-      --surface: #1a1a19;
-      --ink: #ffffff;
-      --ink-2: #c3c2b7;
-      --muted: #898781;
-      --line: rgba(255, 255, 255, .12);
-      --grid: #2c2c2a;
-      --accent: #5598e7;
-      --accent-hi: #6da7ec;
-      /* White on this blue is about 3:1 - too weak for button text, so the
-         dark theme puts dark ink on the light accent instead. */
-      --accent-ink: #0b0b0b;
-      --track: #184f95;
-      --good-ink: #0ca30c;
-      --warning-ink: #fab219;
-      --critical-ink: #e46b6b;
-      --person: #9085e9;
-      --shadow: 0 1px 2px rgba(0,0,0,.4);
-    }
+    :root:not([data-theme="light"]) { --shadow: 0 1px 2px rgba(0,0,0,.4); }
   }
+
+  /* A choice made with the switch, which beats the machine's setting. */
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"]  { color-scheme: dark;
+                              --shadow: 0 1px 2px rgba(0,0,0,.4); }
 
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
@@ -181,6 +230,26 @@
   .tab.on .count { background: color-mix(in srgb, var(--accent) 18%, transparent);
          color: var(--accent-hi); }
 
+  /* The right-hand end of the header: the theme switch, and Sign out when
+     somebody holds a session. */
+  .bar-end { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .themetoggle {
+    display: flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; padding: 0; align-self: center;
+    background: none; border: 1px solid transparent; border-radius: 9px;
+    color: var(--muted); cursor: pointer;
+    transition: color .14s ease, background .14s ease, border-color .14s ease;
+  }
+  .themetoggle:hover { color: var(--ink); background: var(--grid); }
+  .themetoggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Strokes rather than fills, so one pair of icons reads on either theme. */
+  .themetoggle svg { fill: none; stroke: currentColor; stroke-width: 1.8;
+                     stroke-linecap: round; stroke-linejoin: round; }
+  .themetoggle .sun { display: none; }
+  /* Show the one you would be switching TO: a moon while it is light. */
+  :root[data-theme="dark"] .themetoggle .sun { display: block; }
+  :root[data-theme="dark"] .themetoggle .moon { display: none; }
+
   /* Group tabs over the app grid. Quieter than the header's tabs - these
      filter a list, they do not change page - so they read as a control on
      the grid rather than as a second navigation bar. */
@@ -230,7 +299,7 @@
          border: 1.5px solid var(--grid); display: grid; place-items: center;
          font-size: 10px; color: transparent; transition: all .14s ease; }
   .grouppick input:checked + label .tick { background: var(--accent);
-         border-color: var(--accent); color: #fff; }
+         border-color: var(--accent); color: var(--accent-ink); }
 
   /* Drop a ZIP here - the product's own gesture, made literal. */
   .dropzone { position: relative; border: 1.5px dashed var(--grid);
@@ -381,17 +450,52 @@
       <a class="tab {{ 'on' if active_tab == 'deploy' }}" href="/deploy">Deploy</a>
       <a class="tab {{ 'on' if active_tab == 'server' }}" href="/admin/update">Server</a>
     </nav>
-    {# Only while a session is actually held. Most people never sign in -
-       only the Server tab asks - so showing this to everyone would offer a
-       control that does nothing. #}
-    {% if signed_in %}
-    <form method="post" action="/logout" style="margin-left:auto">
-      <button class="tab" style="background:none;border:0;cursor:pointer;font:inherit"
-              title="Sign out of the Server tab">Sign out</button></form>
-    {% endif %}
+    <div class="bar-end">
+      {# Hidden until the script unhides it: without JavaScript it could not
+         remember a choice, and a button that forgets is worse than none. #}
+      <button type="button" id="theme-toggle" class="themetoggle" hidden
+              aria-label="Switch between light and dark">
+        <svg class="sun" viewBox="0 0 24 24" aria-hidden="true" width="17" height="17">
+          <circle cx="12" cy="12" r="4.4"/>
+          <path d="M12 1.6v3M12 19.4v3M1.6 12h3M19.4 12h3M4.6 4.6l2.2 2.2M17.2 17.2l2.2 2.2M19.4 4.6l-2.2 2.2M6.8 17.2l-2.2 2.2"/>
+        </svg>
+        <svg class="moon" viewBox="0 0 24 24" aria-hidden="true" width="17" height="17">
+          <path d="M20.5 14.3A8.8 8.8 0 1 1 9.7 3.5a7 7 0 0 0 10.8 10.8z"/>
+        </svg>
+      </button>
+
+      {# Only while a session is actually held. Most people never sign in -
+         only the Server tab asks - so showing this to everyone would offer a
+         control that does nothing. #}
+      {% if signed_in %}
+      <form method="post" action="/logout">
+        <button class="tab" style="background:none;border:0;cursor:pointer;font:inherit"
+                title="Sign out of the Server tab">Sign out</button></form>
+      {% endif %}
+    </div>
   </div>
 </header>
 <main>{% block body %}{% endblock %}</main>
+<script>
+// The switch. The theme itself was already decided in the head; this only
+// flips it and remembers, so there is one place that knows how to store it.
+(function () {
+  var toggle = document.getElementById("theme-toggle");
+  if (!toggle || !window.__setTheme) return;
+  toggle.hidden = false;
+  function label() {
+    var dark = document.documentElement.dataset.theme === "dark";
+    toggle.title = dark ? "Switch to light mode" : "Switch to dark mode";
+    toggle.setAttribute("aria-pressed", dark ? "true" : "false");
+  }
+  label();
+  toggle.addEventListener("click", function () {
+    window.__setTheme(
+      document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    label();
+  });
+})();
+</script>
 <script>
 // Copying to the clipboard, on a plain HTTP address.
 //

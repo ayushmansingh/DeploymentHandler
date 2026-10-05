@@ -128,15 +128,20 @@ def test_signing_out_ends_the_session(locked):
     assert locked.get("/admin/update").status_code == 303
 
 
+# The words appear in a stylesheet comment too, so these look for the button
+# itself rather than for the phrase anywhere on the page.
+SIGN_OUT_BUTTON = ">Sign out</button>"
+
+
 def test_sign_out_is_offered_only_to_somebody_who_signed_in(locked):
     """Most people never sign in, because only one tab asks. A Sign out
     button on their dashboard would be a control that does nothing."""
-    assert "Sign out" not in locked.get("/").text
+    assert SIGN_OUT_BUTTON not in locked.get("/").text
 
     response = locked.post(
         "/login", data={"password": "Server123", "next": "/admin/update"})
     locked.cookies.set("launcher_session", response.cookies["launcher_session"])
-    assert "Sign out" in locked.get("/").text
+    assert SIGN_OUT_BUTTON in locked.get("/").text
 
 
 def test_no_password_means_no_gate(data_dir, monkeypatch):
@@ -149,7 +154,7 @@ def test_no_password_means_no_gate(data_dir, monkeypatch):
 
     assert client.get("/").status_code == 200
     assert client.get("/admin/update").status_code == 200
-    assert "Sign out" not in client.get("/").text
+    assert SIGN_OUT_BUTTON not in client.get("/").text
 
 
 def test_a_new_route_is_open_unless_somebody_guards_it():

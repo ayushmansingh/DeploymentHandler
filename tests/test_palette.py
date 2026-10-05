@@ -29,11 +29,33 @@ def contrast(a: str, b: str) -> float:
 
 
 def token(name: str) -> tuple[str, str]:
-    """The light and dark values of a CSS custom property."""
+    """The light and dark values of a CSS custom property.
+
+    They are written as `light-dark(light, dark)`, preceded by a plain value
+    for browsers that do not know the function. Reading the pair out of the
+    stylesheet - rather than listing the colours here - is what keeps this
+    check honest when somebody changes one of them.
+    """
     css = BASE.read_text()
-    found = re.findall(rf"--{name}:\s*(#[0-9a-fA-F]{{6}})", css)
-    assert len(found) == 2, f"expected a light and a dark value for --{name}, got {found}"
-    return found[0], found[1]
+    pair = re.search(
+        rf"--{name}:\s*light-dark\(\s*(#[0-9a-fA-F]{{6}})\s*,\s*(#[0-9a-fA-F]{{6}})\s*\)",
+        css,
+    )
+    assert pair, f"expected a light-dark() pair for --{name}"
+    return pair.group(1), pair.group(2)
+
+
+def test_every_pair_has_a_plain_value_in_front_of_it():
+    """An old browser drops a declaration it cannot parse. Without the plain
+    value in front, that colour would be lost rather than fall back to the
+    light theme."""
+    css = BASE.read_text()
+    for name in re.findall(r"--([a-z-]+):\s*light-dark\(", css):
+        before = css[:css.index(f"--{name}: light-dark(")]
+        assert before.rstrip().endswith(";"), name
+        assert f"--{name}:" in before.rsplit("\n", 2)[-2], (
+            f"--{name} has no plain value before its light-dark() pair"
+        )
 
 
 def test_contrast_maths_matches_known_values():

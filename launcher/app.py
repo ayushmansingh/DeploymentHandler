@@ -1074,13 +1074,26 @@ def _restarting_page(port: int) -> str:
     """Shown while the launcher is being replaced, and reloads when it returns."""
     return f"""<!doctype html><meta charset="utf-8">
 <title>Updating the launcher</title>
-<body style="font:15px/1.6 system-ui;margin:0;background:#f9f9f7;color:#0b0b0b">
-<div style="max-width:560px;margin:80px auto;padding:28px;background:#fcfcfb;
-     border:1px solid rgba(11,11,11,.1);border-radius:12px">
+<style>
+  /* The one page that cannot extend the template, because the launcher it
+     belongs to is in the middle of being replaced. color-scheme is enough to
+     keep it from flashing white at somebody working in the dark. */
+  :root {{ color-scheme: light dark; }}
+  body {{ font: 15px/1.6 system-ui; margin: 0;
+         background: light-dark(#f9f9f7, #0d0d0d);
+         color: light-dark(#0b0b0b, #ffffff); }}
+  .box {{ max-width: 560px; margin: 80px auto; padding: 28px;
+         background: light-dark(#fcfcfb, #1a1a19);
+         border: 1px solid light-dark(rgba(11,11,11,.1), rgba(255,255,255,.12));
+         border-radius: 12px; }}
+  .quiet {{ color: light-dark(#52514e, #c3c2b7); font-size: 13.5px; }}
+</style>
+<body>
+<div class="box">
   <h1 style="font-size:20px;margin:0 0 10px">Updating the launcher</h1>
   <p id="status">The new version has been installed and the launcher is
      restarting. This page will come back on its own in about 20 seconds.</p>
-  <p style="color:#52514e;font-size:13.5px">Your applications are still running -
+  <p class="quiet">Your applications are still running -
      they are not affected by this.</p>
 </div>
 <script>

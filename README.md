@@ -425,6 +425,18 @@ The rule is a closed list — `/admin` and below — rather than a list of
 exceptions, so a page added later is open unless somebody decides it should
 not be.
 
+## Light and dark
+
+The dashboard follows whatever the machine is set to, and the switch in the
+top right corner overrides that. The choice is remembered in that browser —
+so one person can work in dark on their laptop while the server's own screen
+stays light — and it is applied before the page is drawn, so a dark session
+never flashes white on its way in.
+
+Leave it alone and it keeps following the machine, including when a laptop
+turns dark in the evening. Press it once and it stops following and stays
+where you put it.
+
 ## Groups
 
 The dashboard files apps under tabs — **All**, then **Dashboards**, **Tools**
