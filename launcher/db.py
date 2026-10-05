@@ -11,7 +11,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from . import config
 
@@ -74,7 +74,21 @@ CREATE TABLE IF NOT EXISTS app_settings (
     PRIMARY KEY (app_id, key)
 );
 
+-- Which groups an app is filed under on the dashboard. A row per group
+-- rather than a list in a column, because an app can be in more than one and
+-- the grid asks the question the other way round ("what is in Tools?").
+--
+-- The group name is stored as text, not as an id into a table of groups, so
+-- that editing the configured list cannot orphan anything: a name no longer
+-- offered is simply not shown, and comes back if the group is restored.
+CREATE TABLE IF NOT EXISTS app_groups (
+    app_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    name   TEXT    NOT NULL,
+    PRIMARY KEY (app_id, name)
+);
+
 CREATE INDEX IF NOT EXISTS idx_deploys_app ON deploys(app_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_groups_name ON app_groups(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ports_app_role ON ports(app_id, role);
 """
 
@@ -169,6 +183,54 @@ def update_app(app_id: int, db_path: Path | None = None, **fields: Any) -> None:
 def delete_app(app_id: int, db_path: Path | None = None) -> None:
     with connect(db_path) as conn:
         conn.execute("DELETE FROM apps WHERE id = ?", (app_id,))
+
+
+# ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+
+def set_app_groups(
+    app_id: int, names: Iterable[str], db_path: Path | None = None
+) -> None:
+    """Replace an app's groups with exactly this set.
+
+    Replacing rather than merging is what lets the form send the boxes that
+    are ticked and nothing else: unticking the last one has to be able to
+    leave an app with no group at all.
+    """
+    wanted = sorted({name.strip() for name in names if name and name.strip()})
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM app_groups WHERE app_id = ?", (app_id,))
+        conn.executemany(
+            "INSERT INTO app_groups (app_id, name) VALUES (?,?)",
+            [(app_id, name) for name in wanted],
+        )
+        conn.execute("UPDATE apps SET updated_at = ? WHERE id = ?",
+                     (time.time(), app_id))
+
+
+def app_groups(app_id: int, db_path: Path | None = None) -> list[str]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT name FROM app_groups WHERE app_id = ? ORDER BY name", (app_id,)
+        ).fetchall()
+    return [row["name"] for row in rows]
+
+
+def groups_by_app(db_path: Path | None = None) -> dict[int, list[str]]:
+    """Every app's groups in one query.
+
+    The dashboard draws every card at once and polls itself, so asking per app
+    would be one round trip per app per refresh for a value this small.
+    """
+    found: dict[int, list[str]] = {}
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT app_id, name FROM app_groups ORDER BY app_id, name"
+        ).fetchall()
+    for row in rows:
+        found.setdefault(int(row["app_id"]), []).append(row["name"])
+    return found
 
 
 def set_declared_settings(

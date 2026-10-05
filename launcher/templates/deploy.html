@@ -141,6 +141,22 @@ NOT SUPPORTED - do not use these
       </div>
     </div>
 
+    <div style="margin-top:16px">
+      <label style="margin-bottom:0">Groups <span class="muted"
+             style="font-weight:450">(optional)</span></label>
+      <p class="muted" style="font-size:12.5px;margin:4px 0 0">
+        Which tabs this app shows under on the dashboard. Pick as many as fit,
+        or none — it appears under <strong>All</strong> either way, and you can
+        change this later on the app's own page.</p>
+      <div class="grouppick">
+        {% for name in all_groups %}
+        <input type="checkbox" id="group-{{ loop.index }}" name="groups"
+               value="{{ name }}"{{ ' checked' if name in chosen_groups }}>
+        <label for="group-{{ loop.index }}"><span class="tick">&check;</span>{{ name }}</label>
+        {% endfor %}
+      </div>
+    </div>
+
     <p style="margin:20px 0 0"><button type="submit" class="primary">Deploy</button></p>
   </form>
 </div>

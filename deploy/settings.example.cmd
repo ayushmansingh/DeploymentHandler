@@ -27,6 +27,11 @@ set LAUNCHER_DATA_DIR=%USERPROFILE%\AppLauncherData
 REM Full path to npm.cmd. Leave empty if Node is already on PATH.
 set LAUNCHER_NPM=
 
+REM The tabs the dashboard files apps under, beside "All". Change this list
+REM to suit your team. An app keeps a group you remove from the list, so it
+REM comes back if you put the group back.
+set LAUNCHER_GROUPS=Dashboards,Tools,Designs
+
 REM How many apps may build at once. Each build can use ~2GB of memory.
 set LAUNCHER_MAX_BUILDS=2
 

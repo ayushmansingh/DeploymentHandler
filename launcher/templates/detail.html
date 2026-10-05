@@ -170,6 +170,26 @@
 {{ settings_card() }}
 {% endif %}
 
+<div class="card">
+  <strong>Groups</strong>
+  <p class="muted" style="font-size:13px;margin:4px 0 0">
+    Which tabs this app shows under on the dashboard. It appears under
+    <strong>All</strong> whatever you pick here.</p>
+  {% if groups_saved %}
+    <div class="banner ok" style="margin:12px 0 0">Groups saved.</div>
+  {% endif %}
+  <form method="post" action="/app/{{ app['name'] }}/groups">
+    <div class="grouppick">
+      {% for name in all_groups %}
+      <input type="checkbox" id="group-{{ loop.index }}" name="groups"
+             value="{{ name }}"{{ ' checked' if name in chosen_groups }}>
+      <label for="group-{{ loop.index }}"><span class="tick">&check;</span>{{ name }}</label>
+      {% endfor %}
+    </div>
+    <p style="margin:14px 0 0"><button type="submit">Save groups</button></p>
+  </form>
+</div>
+
 {% if usage and app['status'] == 'live' %}
 <div class="card">
   <strong>Resource use</strong>

@@ -6,10 +6,14 @@
 {# Stat tiles, not charts: each of these is a single value against a limit. #}
 <div class="stats">
   <div class="stat">
-    <div class="top"><div class="label">Applications</div></div>
+    {# Named after the tab being shown, because the numbers below are that
+       tab's. "Applications 2 of 3" while six are deployed would just look
+       wrong. The server's own memory, CPU and disk are never filtered. #}
+    <div class="top"><div class="label">{{ group or "Applications" }}</div></div>
     <div class="value">{{ live_count }} <small>of {{ apps | length }} running</small></div>
     <div class="note">
-      {% if apps | length == 0 %}Nothing deployed yet
+      {% if all_apps | length == 0 %}Nothing deployed yet
+      {% elif apps | length == 0 %}Nothing in this group yet
       {% elif live_count == apps | length %}All healthy
       {% else %}{{ apps | length - live_count }} not running{% endif %}
     </div>
@@ -60,12 +64,34 @@
   </div>
 </div>
 
-{% if not apps %}
+{% if not all_apps %}
   <div class="card muted" style="margin-top:16px">
     No applications yet. Follow the two steps below to deploy the first one.
   </div>
 {% else %}
-  <h2>Applications</h2>
+  <div class="apps-head">
+    <h2>Applications</h2>
+    {# Real links, so a tab can be bookmarked and the back button works. The
+       counts come from every app, not the filtered ones, so a tab never
+       vanishes from under the person standing on it. #}
+    <nav class="grouptabs">
+      <a class="grouptab {{ 'on' if not group }}" href="/">All<span
+         class="count">{{ all_apps | length }}</span></a>
+      {% for tab in group_tabs %}
+      <a class="grouptab {{ 'on' if group == tab.name }}"
+         href="/?group={{ tab.name | urlencode }}">{{ tab.name }}<span
+         class="count">{{ tab.count }}</span></a>
+      {% endfor %}
+    </nav>
+  </div>
+
+  {% if not apps %}
+  <div class="card muted">
+    Nothing is filed under {{ group }} yet. Open an app and use
+    <strong>Groups</strong> on its page to add it, or pick a group when you
+    deploy.
+  </div>
+  {% else %}
   <div class="grid">
   {% for app in apps %}
     {% set clickable = app.status == 'live' and app.url %}
@@ -84,6 +110,12 @@
             {{ app.tile.monogram }}</span>
         {% endif %}
       </a>
+
+      {% if app.groups %}
+      <div class="app-groups">
+        {% for name in app.groups %}<span class="grouppill">{{ name }}</span>{% endfor %}
+      </div>
+      {% endif %}
 
       <div class="app-head">
         {% if clickable %}
@@ -149,5 +181,6 @@
     </div>
   {% endfor %}
   </div>
+  {% endif %}
 {% endif %}
 </div>

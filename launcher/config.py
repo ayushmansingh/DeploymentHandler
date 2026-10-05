@@ -112,6 +112,20 @@ SCREENSHOTS_ENABLED = SCREENSHOT_BROWSER.lower() != "off"
 # How many uploaded versions to keep per app before pruning the oldest.
 KEEP_VERSIONS = _env_int("LAUNCHER_KEEP_VERSIONS", 5)
 
+# The groups the dashboard files apps under, shown as tabs beside "All".
+#
+# A short fixed list rather than free-form tags. Free text from a dozen people
+# produces "dashboard", "Dashboards" and "dash" as three different groups, and
+# then needs a screen for merging them; four names everyone recognises sort a
+# dozen apps and need no screen at all. Changing the list here is one line, and
+# an app keeps a group dropped from it, so removing one by mistake is not
+# destructive.
+GROUPS = tuple(
+    name.strip()
+    for name in os.environ.get("LAUNCHER_GROUPS", "Dashboards,Tools,Designs").split(",")
+    if name.strip()
+)
+
 # The hostname users see in the links we hand out. Set this to the server's
 # static LAN IP or DNS name, otherwise links only work from the server itself.
 def _default_public_host() -> str:

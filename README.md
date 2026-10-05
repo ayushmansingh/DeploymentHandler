@@ -425,6 +425,32 @@ The rule is a closed list — `/admin` and below — rather than a list of
 exceptions, so a page added later is open unless somebody decides it should
 not be.
 
+## Groups
+
+The dashboard files apps under tabs — **All**, then **Dashboards**, **Tools**
+and **Designs** — so finding one among thirty is a click rather than a scan.
+
+Pick the groups when you deploy, or set them later on an app's own page under
+**Groups**. An app can be in more than one, and it can be in none: **All**
+always holds every app, so nothing becomes invisible by being filed nowhere.
+
+The tabs are a filter over one list, not separate pages. The counts beside
+them are of every app, not of what is currently shown, so a tab never
+disappears from under you. The server's own memory, CPU and disk are never
+filtered either — those are the machine's numbers whichever tab you are on.
+
+Change the list with `LAUNCHER_GROUPS` in `deploy\settings.cmd`:
+
+```bat
+set LAUNCHER_GROUPS=Dashboards,Tools,Designs
+```
+
+A short fixed list rather than free-form tags, on purpose: free text from a
+dozen people produces `dashboard`, `Dashboards` and `dash` as three different
+groups, and then needs a screen for merging them. Removing a group from the
+list only stops showing it — apps keep the filing, so putting it back restores
+them.
+
 ## Each app shows a picture of itself
 
 After a deploy succeeds the launcher photographs the app's own home page and

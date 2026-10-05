@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 from contextlib import asynccontextmanager
 from urllib.parse import quote
@@ -164,7 +165,19 @@ _STATUS_ORDER = {
 }
 
 
-def _app_summary(row, request: Request | None = None) -> dict:
+def _clean_groups(names: Iterable[str]) -> list[str]:
+    """Only groups this server offers, in the order it offers them.
+
+    A form can send anything, and the configured list can change under a page
+    somebody left open. Filtering against config.GROUPS means neither can put
+    a group on the dashboard that has no tab to reach it by.
+    """
+    chosen = {name.strip() for name in names if name and name.strip()}
+    return [group for group in config.GROUPS if group in chosen]
+
+
+def _app_summary(row, request: Request | None = None,
+                 groups: list[str] | None = None) -> dict:
     """Everything the dashboard shows about one app."""
     latest = db.list_deploys(int(row["id"]), limit=1)
     deploy = latest[0] if latest else None
@@ -186,6 +199,11 @@ def _app_summary(row, request: Request | None = None) -> dict:
         "usage": None,
         "memory_mb": None,
         "missing_settings": [d["name"] for d in db.missing_settings(int(row["id"]))],
+        # Passed in by the caller when it has already fetched every app's
+        # groups in one query; looked up here for a lone card.
+        "groups": _clean_groups(
+            db.app_groups(int(row["id"])) if groups is None else groups
+        ),
     }
     if usage is not None:
         # Memory is shown against the per-app limit, since that is the number
@@ -208,21 +226,42 @@ def _app_summary(row, request: Request | None = None) -> dict:
 
 
 def _all_summaries(request: Request | None = None) -> list[dict]:
-    summaries = [_app_summary(row, request) for row in db.list_apps()]
+    by_app = db.groups_by_app()
+    summaries = [
+        _app_summary(row, request, by_app.get(int(row["id"]), []))
+        for row in db.list_apps()
+    ]
     summaries.sort(key=lambda a: (_STATUS_ORDER.get(a["status"], 9), a["name"]))
     return summaries
 
 
-def _grid_context(request: Request | None = None) -> dict:
-    """Context for the app grid, including whether anything is still working."""
-    apps = _all_summaries(request)
+def _grid_context(request: Request | None = None, group: str = "") -> dict:
+    """Context for the app grid, including whether anything is still working.
+
+    `group` filters the cards and nothing else. The tabs and their counts are
+    built from every app, so a tab never disappears while you are standing on
+    it, and the machine's own numbers stay the machine's own numbers rather
+    than becoming "memory used by the Tools tab", which would mean nothing.
+    """
+    everything = _all_summaries(request)
+    active = group if group in config.GROUPS else ""
+    apps = [a for a in everything if not active or active in a["groups"]]
     host = metrics.host()
     return {
         "apps": apps,
+        "all_apps": everything,
+        "group": active,
+        "group_tabs": [
+            {"name": name,
+             "count": sum(1 for a in everything if name in a["groups"])}
+            for name in config.GROUPS
+        ],
         "live_count": sum(1 for a in apps if a["status"] == "live"),
+        # Busy is asked of every app, not the filtered ones: a build on another
+        # tab still has to keep the poll fast, or it would finish unnoticed.
         "busy": any(
             a["status"] in ("building", "new") or a["deploy_status"] in ("queued", "building")
-            for a in apps
+            for a in everything
         ),
         "host": host,
         "host_states": {
@@ -289,12 +328,12 @@ def do_logout():
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
+def dashboard(request: Request, group: str = ""):
     ready, problem = runtime_ready()
     return templates.TemplateResponse(
         request, "index.html",
         {
-            **_grid_context(request), **_nav("dashboard", request),
+            **_grid_context(request, group), **_nav("dashboard", request),
             "runtime_ready": ready, "runtime_problem": problem,
         },
     )
@@ -308,14 +347,21 @@ def deploy_page(request: Request):
         {
             **_nav("deploy", request), "app_count": len(db.list_apps()),
             "runtime_ready": ready, "runtime_problem": problem,
+            "all_groups": config.GROUPS, "chosen_groups": [],
         },
     )
 
 
 @app.get("/partials/apps", response_class=HTMLResponse)
-def partial_apps(request: Request):
-    """The app grid on its own, for the dashboard's live refresh."""
-    return templates.TemplateResponse(request, "_apps.html", _grid_context(request))
+def partial_apps(request: Request, group: str = ""):
+    """The app grid on its own, for the dashboard's live refresh.
+
+    It takes the group so a refresh lands on the tab the person is looking at
+    rather than silently resetting them to All every few seconds.
+    """
+    return templates.TemplateResponse(
+        request, "_apps.html", _grid_context(request, group)
+    )
 
 
 @app.get("/api/apps")
@@ -380,6 +426,7 @@ async def upload(
     request: Request,
     name: str = Form(...),
     uploaded_by: str = Form(""),
+    groups: list[str] = Form(default=[]),
     file: UploadFile = None,  # type: ignore[assignment]
 ):
     if file is None or not file.filename:
@@ -398,6 +445,14 @@ async def upload(
 
     row = db.get_app_by_name(app_name)
     app_id = int(row["id"]) if row else db.create_app(app_name, owner=uploaded_by.strip())
+
+    # Uploading the same name again updates an existing app, and the form on
+    # that path is the one on the Deploy page with nothing ticked. Only write
+    # groups when some were chosen, so re-deploying an app does not quietly
+    # empty the groups somebody set for it on its own page.
+    chosen = _clean_groups(groups)
+    if chosen or row is None:
+        db.set_app_groups(app_id, chosen)
 
     deploy_id = _queue_deploy(app_id, app_name, zip_path, uploaded_by.strip(), stamp)
     return RedirectResponse(f"/app/{app_name}?deploy={deploy_id}", status_code=303)
@@ -474,7 +529,8 @@ def _setting_rows(app_id: int) -> list[dict]:
 @app.get("/app/{name}", response_class=HTMLResponse)
 def app_detail(request: Request, name: str, deploy: int | None = None,
                setting_saved: str = "", setting_removed: str = "",
-               setting_error: str = "", started: str = "", message: str = ""):
+               setting_error: str = "", started: str = "", message: str = "",
+               groups_saved: str = ""):
     row = _require_app(name)
     deploys = db.list_deploys(int(row["id"]), limit=10)
     current = db.get_deploy(deploy) if deploy else (deploys[0] if deploys else None)
@@ -501,6 +557,9 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
             "setting_field_prefix": SETTING_FIELD_PREFIX,
             "mask": app_settings.MASK,
             "memory_strikes": config.MEMORY_STRIKES_BEFORE_RESTART,
+            "all_groups": config.GROUPS,
+            "chosen_groups": _clean_groups(db.app_groups(int(row["id"]))),
+            "groups_saved": bool(groups_saved),
             "setting_saved": setting_saved,
             "setting_removed": setting_removed,
             "setting_error": setting_error,
@@ -634,6 +693,19 @@ def repair_prompt(name: str, deploy: int | None = None):
     if target["error_summary"]:
         diagnosis.summary = target["error_summary"]
     return PlainTextResponse(errors.repair_prompt(name, diagnosis, log_text))
+
+
+@app.post("/app/{name}/groups")
+def save_groups(name: str, groups: list[str] = Form(default=[])):
+    """Set which groups this app is filed under.
+
+    An empty list is a real answer, not a missing one - it means "no group",
+    and the app then shows only under All. That is why the form always posts,
+    even with nothing ticked.
+    """
+    row = _require_app(name)
+    db.set_app_groups(int(row["id"]), _clean_groups(groups))
+    return RedirectResponse(f"/app/{name}?groups_saved=1", status_code=303)
 
 
 @app.post("/app/{name}/settings")
