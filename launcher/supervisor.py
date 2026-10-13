@@ -94,7 +94,44 @@ def launch(app_row, reason: str = "") -> bool:
         front_pid=processes.front_pid,
     )
     _strikes.pop(int(app_row["id"]), None)
+    _restarts.pop(int(app_row["id"]), None)
     return True
+
+
+# Apps are restarted one at a time with a breath in between. Spawning
+# twenty-eight interpreters at once on a 16GB office machine is a CPU spike
+# and a memory spike at the same moment, and there is no hurry.
+RESTART_STAGGER_SECONDS = 0.75
+
+
+def restart_all(pause=time.sleep) -> dict:
+    """Restart every app that is supposed to be running.
+
+    Only the live ones. A stopped app stays stopped - somebody stopped it on
+    purpose, and a button somewhere else is not allowed to undo that. An app
+    waiting for its settings stays waiting, because launch() refuses it
+    anyway and marking it failed would only be noise.
+
+    Held under the same lock as the health check, so the supervisor cannot
+    see an app mid-restart, decide it has died and start a second copy.
+    """
+    restarted: list[str] = []
+    failed: list[str] = []
+
+    with _lock:
+        live = [row for row in db.list_apps() if row["status"] == "live"]
+        for index, row in enumerate(live):
+            if index:
+                pause(RESTART_STAGGER_SECONDS)
+            try:
+                ok = launch(row, reason="Restarting after a launcher update.")
+            except Exception as exc:  # noqa: BLE001 - one app, not the batch
+                _log(row["name"], f"Could not restart it: {exc}")
+                db.update_app(int(row["id"]), status="failed")
+                ok = False
+            (restarted if ok else failed).append(row["name"])
+
+    return {"restarted": restarted, "failed": failed, "total": len(live)}
 
 
 def stop(app_row) -> None:

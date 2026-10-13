@@ -105,6 +105,27 @@
   </form>
 </div>
 
+<div class="card">
+  <strong>Restart every app</strong>
+  <p class="muted" style="font-size:13px;margin:4px 0 0">
+    Each app keeps running the processes it was started with, so a launcher
+    update does not reach them until something restarts them. This does that
+    in one go.</p>
+  <p class="muted" style="font-size:13px;margin:10px 0 0">
+    Settings, saved files and links are untouched — each app comes back on the
+    same address with the same configuration, and nothing is rebuilt, so it
+    takes seconds per app. Apps you have deliberately stopped stay stopped.</p>
+  <p class="muted" style="font-size:13px;margin:10px 0 0">
+    <strong>Anyone using an app will be interrupted</strong> for a few seconds.
+    Worth doing when the office is quiet.</p>
+  <p style="margin:16px 0 0">
+    <form method="post" action="/admin/restart-all"
+          onsubmit="this.querySelector('button').disabled = true;
+                    this.querySelector('button').textContent = 'Restarting...';
+                    return confirm('Restart all running apps? They will each be offline for a few seconds.');">
+      <button type="submit">Restart all apps</button></form></p>
+</div>
+
 {% if update_log %}
 <details class="card">
   <summary>Last update log</summary>

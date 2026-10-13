@@ -461,6 +461,22 @@ Counting starts when this version is installed, and an app only starts
 counting when it is next started — so the tab says when counting began rather
 than letting a long-running app look unused.
 
+### Restart every app
+
+On the **Server** tab. Each app keeps running the processes it was started
+with, so a launcher update does not reach them until something restarts them —
+this does all of them in one press.
+
+Settings, saved files and links are untouched: each app comes back on the same
+address with the same configuration, read fresh from the database, and nothing
+is rebuilt, so it is seconds per app rather than minutes. Apps you have
+deliberately stopped stay stopped, and an app waiting for its settings keeps
+waiting.
+
+Anyone using an app is interrupted for a few seconds, so it is worth doing when
+the office is quiet. Apps are restarted one at a time with a short pause, so
+the machine is not asked to start twenty-eight processes at the same instant.
+
 ## Light and dark
 
 The dashboard follows whatever the machine is set to, and the switch in the

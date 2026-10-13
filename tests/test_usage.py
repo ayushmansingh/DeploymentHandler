@@ -432,3 +432,151 @@ def test_the_launcher_tells_the_front_server_which_app_it_is():
     assert '"--app-id"' in inspect.getsource(native.start)
     assert '"--launcher-port"' in inspect.getsource(native.start)
     assert "app_id=int(app_row" in inspect.getsource(supervisor.launch)
+
+
+# ---------------------------------------------------------------------------
+# Restarting everything, which is what makes counting start
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def restartable(data_dir, monkeypatch):
+    """Apps in every state, with launch() recorded instead of run."""
+    from launcher import supervisor
+
+    db.init()
+    monkeypatch.setattr(config, "RUNTIME", "native")
+    launched: list[str] = []
+
+    def fake_launch(row, reason=""):
+        launched.append(row["name"])
+        return row["name"] != "broken-app"
+
+    monkeypatch.setattr(supervisor, "launch", fake_launch)
+
+    for name, status in [("revenue-explorer", "live"), ("zip-tool", "live"),
+                         ("broken-app", "live"), ("paused-app", "stopped"),
+                         ("unconfigured", "needs_setup"), ("dead", "failed")]:
+        app_id = db.create_app(name)
+        db.update_app(app_id, status=status, host_port=24800 + app_id)
+
+    return supervisor, launched
+
+
+def test_restart_all_restarts_the_running_apps(restartable):
+    supervisor, launched = restartable
+
+    result = supervisor.restart_all(pause=lambda _: None)
+
+    assert set(launched) == {"revenue-explorer", "zip-tool", "broken-app"}
+    assert result["total"] == 3
+
+
+def test_a_deliberately_stopped_app_stays_stopped(restartable):
+    """Somebody stopped it on purpose. A button elsewhere does not undo that."""
+    supervisor, launched = restartable
+
+    supervisor.restart_all(pause=lambda _: None)
+
+    assert "paused-app" not in launched
+    assert db.get_app_by_name("paused-app")["status"] == "stopped"
+
+
+def test_an_app_waiting_for_settings_is_left_alone(restartable):
+    supervisor, launched = restartable
+
+    supervisor.restart_all(pause=lambda _: None)
+
+    assert "unconfigured" not in launched
+
+
+def test_one_app_that_will_not_come_back_is_named(restartable):
+    """Silently restarting 13 of 14 is how an outage goes unnoticed."""
+    supervisor, _ = restartable
+
+    result = supervisor.restart_all(pause=lambda _: None)
+
+    assert result["failed"] == ["broken-app"]
+    assert len(result["restarted"]) == 2
+
+
+def test_one_app_raising_does_not_abandon_the_rest(data_dir, monkeypatch):
+    from launcher import supervisor
+
+    db.init()
+    monkeypatch.setattr(config, "RUNTIME", "native")
+    seen: list[str] = []
+
+    def explode_on_first(row, reason=""):
+        seen.append(row["name"])
+        if row["name"] == "a-first":
+            raise RuntimeError("psutil said no")
+        return True
+
+    monkeypatch.setattr(supervisor, "launch", explode_on_first)
+    for name in ("a-first", "b-second"):
+        db.update_app(db.create_app(name), status="live")
+
+    result = supervisor.restart_all(pause=lambda _: None)
+
+    assert seen == ["a-first", "b-second"], "it carried on"
+    assert result["failed"] == ["a-first"]
+    assert db.get_app_by_name("a-first")["status"] == "failed"
+
+
+def test_restarts_are_staggered(restartable):
+    """Twenty-eight interpreters starting at once on an office machine is a
+    CPU and memory spike at the same moment, for no reason."""
+    supervisor, _ = restartable
+    waits: list[float] = []
+
+    supervisor.restart_all(pause=waits.append)
+
+    assert len(waits) == 2, "a pause between apps, not before the first"
+    assert all(w > 0 for w in waits)
+
+
+def test_the_supervisor_cannot_start_a_second_copy_mid_restart(restartable):
+    """restart_all and the health check share a lock; without it the loop
+    sees an app between stop and start and launches another one."""
+    import inspect
+
+    supervisor, _ = restartable
+    source = inspect.getsource(supervisor.restart_all)
+
+    assert "with _lock:" in source
+
+
+def test_a_restart_clears_the_give_up_count(data_dir, monkeypatch):
+    """An app the supervisor gave up on must get a clean slate when a person
+    asks for it again, not stay one attempt from being abandoned."""
+    from launcher import native, supervisor
+
+    db.init()
+    monkeypatch.setattr(config, "RUNTIME", "native")
+    app_id = db.create_app("revenue-explorer")
+    db.update_app(app_id, status="live")
+    src = config.SRC_DIR / "revenue-explorer" / "backend"
+    src.mkdir(parents=True)
+    (src / "requirements.txt").write_text("fastapi\n")
+    (src / "main.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n")
+    monkeypatch.setattr(native, "stop", lambda *a, **k: None)
+    monkeypatch.setattr(native, "start",
+                        lambda *a, **k: native.Processes(front_pid=2, backend_pid=1))
+
+    supervisor._restarts[app_id] = 3
+    supervisor.launch(db.get_app(app_id))
+
+    assert app_id not in supervisor._restarts
+
+
+def test_the_button_is_on_the_server_tab(client):
+    assert 'action="/admin/restart-all"' in client.get("/admin/update").text
+
+
+def test_the_empty_stats_page_points_at_it(client):
+    db.create_app("revenue-explorer")
+
+    body = client.get("/stats").text
+
+    assert "/admin/update" in body
+    assert "Restart all apps" in body

@@ -17,9 +17,15 @@
     <p class="muted" style="font-size:13.5px;margin:6px 0 0">
       Counting started
       {% if counting_since %}{{ counting_since | datetime }}{% else %}recently{% endif %},
-      when this version of the launcher was installed. Apps that were already
-      running keep their old counts of nothing until they are next started —
-      restart them from their own pages, or just wait for the next deploy.</p>
+      when this version of the launcher was installed. An app only starts
+      counting when it is next started, and apps that were already running
+      kept their old processes — so there is nothing here until they are
+      restarted.</p>
+    <p style="margin:16px 0 0">
+      <a class="btn" href="/admin/update">Restart all apps on the Server tab</a></p>
+    <p class="muted" style="font-size:12.5px;margin:10px 0 0">
+      It takes seconds per app, keeps every setting and link, and each app is
+      offline only while it comes back up.</p>
   </div>
 {% else %}
 

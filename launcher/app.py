@@ -1215,6 +1215,31 @@ setTimeout(check, 4000);
 </body>"""
 
 
+@app.post("/admin/restart-all")
+def restart_all_apps(request: Request):
+    """Restart every running app, from the Server tab.
+
+    Needed after an update that changes how apps are started - they keep
+    running their old processes until something restarts them, and doing
+    fourteen by hand is the sort of chore people skip.
+    """
+    result = supervisor.restart_all()
+    if not result["total"]:
+        message = "There was nothing running to restart."
+    elif result["failed"]:
+        message = (
+            f"Restarted {len(result['restarted'])} of {result['total']} apps. "
+            f"These did not come back: {', '.join(result['failed'])} - "
+            "open each one to see why."
+        )
+    else:
+        message = f"Restarted all {result['total']} apps."
+    kind = "bad" if result["failed"] else "ok"
+    return RedirectResponse(
+        f"/admin/update?message={quote(message)}&kind={kind}", status_code=303
+    )
+
+
 @app.get("/healthz")
 def healthz():
     ready, problem = runtime_ready()
