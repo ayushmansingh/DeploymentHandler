@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS apps (
     -- What the current version says it needs, as JSON. Names and descriptions
     -- only; the values live in app_settings.
     declared_settings TEXT NOT NULL DEFAULT '[]',
+    -- The secret in a share link, or NULL when the app is not shared. Nothing
+    -- outside the office can reach an app without one, so clearing it is what
+    -- revoking a link means - and it takes effect on the next request, not
+    -- whenever a browser decides to forget a cookie.
+    share_token   TEXT,
+    shared_at     REAL,
+    shared_by     TEXT    NOT NULL DEFAULT '',
     created_at    REAL    NOT NULL,
     updated_at    REAL    NOT NULL
 );
@@ -87,6 +94,11 @@ CREATE TABLE IF NOT EXISTS app_groups (
     PRIMARY KEY (app_id, name)
 );
 
+-- Looked up on every request that arrives through the tunnel, and UNIQUE so
+-- two apps can never answer to the same link.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_apps_share_token
+    ON apps(share_token) WHERE share_token IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_deploys_app ON deploys(app_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_app_groups_name ON app_groups(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ports_app_role ON ports(app_id, role);
@@ -111,6 +123,9 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 # database picks them up without a manual migration step.
 _ADDED_COLUMNS = {
     "apps": {
+        "share_token": "TEXT",
+        "shared_at": "REAL",
+        "shared_by": "TEXT NOT NULL DEFAULT ''",
         "backend_port": "INTEGER",
         "pid": "INTEGER",
         "front_pid": "INTEGER",
@@ -183,6 +198,53 @@ def update_app(app_id: int, db_path: Path | None = None, **fields: Any) -> None:
 def delete_app(app_id: int, db_path: Path | None = None) -> None:
     with connect(db_path) as conn:
         conn.execute("DELETE FROM apps WHERE id = ?", (app_id,))
+
+
+# ---------------------------------------------------------------------------
+# Sharing outside the office
+# ---------------------------------------------------------------------------
+
+def share_app(app_id: int, token: str, by: str = "",
+              db_path: Path | None = None) -> None:
+    """Give an app a share token, which is the whole of its access control."""
+    with connect(db_path) as conn:
+        conn.execute(
+            "UPDATE apps SET share_token = ?, shared_at = ?, shared_by = ?,"
+            " updated_at = ? WHERE id = ?",
+            (token, time.time(), by, time.time(), app_id),
+        )
+
+
+def unshare_app(app_id: int, db_path: Path | None = None) -> None:
+    """Revoke the link. The next request carrying it is refused."""
+    with connect(db_path) as conn:
+        conn.execute(
+            "UPDATE apps SET share_token = NULL, shared_at = NULL,"
+            " shared_by = '', updated_at = ? WHERE id = ?",
+            (time.time(), app_id),
+        )
+
+
+def get_app_by_share_token(token: str, db_path: Path | None = None) -> sqlite3.Row | None:
+    """The app a share link names, or None.
+
+    An empty token must never match an app that happens to have none, so it is
+    refused before the query rather than relying on SQL's NULL handling.
+    """
+    if not token:
+        return None
+    with connect(db_path) as conn:
+        return conn.execute(
+            "SELECT * FROM apps WHERE share_token = ? AND share_token IS NOT NULL",
+            (token,),
+        ).fetchone()
+
+
+def shared_apps(db_path: Path | None = None) -> list[sqlite3.Row]:
+    with connect(db_path) as conn:
+        return conn.execute(
+            "SELECT * FROM apps WHERE share_token IS NOT NULL ORDER BY name"
+        ).fetchall()
 
 
 # ---------------------------------------------------------------------------

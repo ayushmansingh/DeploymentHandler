@@ -6,6 +6,7 @@ same npm problems it exists to absorb.
 """
 from __future__ import annotations
 
+import secrets
 import time
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 
 from . import __version__
 from . import appdata, auth, config, db, deployer, errors, files, hostinfo, metrics, naming, native
-from . import selfupdate, settings as app_settings, thumbs
+from . import selfupdate, settings as app_settings, shareserver, thumbs
 from . import ports
 from . import runtime
 from . import supervisor
@@ -41,6 +42,8 @@ async def lifespan(_: FastAPI):
         # whatever was running before, then keep watching them.
         supervisor.restore_on_startup()
         supervisor.start_background()
+    # Does nothing unless a share port is configured.
+    shareserver.serve_in_background()
     yield
     supervisor.stop_background()
 
@@ -201,6 +204,7 @@ def _app_summary(row, request: Request | None = None,
         "missing_settings": [d["name"] for d in db.missing_settings(int(row["id"]))],
         # Passed in by the caller when it has already fetched every app's
         # groups in one query; looked up here for a lone card.
+        "shared": bool(row["share_token"]),
         "groups": _clean_groups(
             db.app_groups(int(row["id"])) if groups is None else groups
         ),
@@ -530,7 +534,7 @@ def _setting_rows(app_id: int) -> list[dict]:
 def app_detail(request: Request, name: str, deploy: int | None = None,
                setting_saved: str = "", setting_removed: str = "",
                setting_error: str = "", started: str = "", message: str = "",
-               groups_saved: str = ""):
+               groups_saved: str = "", shared: str = "", unshared: str = ""):
     row = _require_app(name)
     deploys = db.list_deploys(int(row["id"]), limit=10)
     current = db.get_deploy(deploy) if deploy else (deploys[0] if deploys else None)
@@ -557,6 +561,14 @@ def app_detail(request: Request, name: str, deploy: int | None = None,
             "setting_field_prefix": SETTING_FIELD_PREFIX,
             "mask": app_settings.MASK,
             "memory_strikes": config.MEMORY_STRIKES_BEFORE_RESTART,
+            "sharing_configured": config.sharing_configured(),
+            "share_base_url": config.SHARE_BASE_URL,
+            "share_token": row["share_token"],
+            "share_link": _share_link(row),
+            "shared_at": row["shared_at"],
+            "shared_by": row["shared_by"],
+            "just_shared": bool(shared),
+            "just_unshared": bool(unshared),
             "all_groups": config.GROUPS,
             "chosen_groups": _clean_groups(db.app_groups(int(row["id"]))),
             "groups_saved": bool(groups_saved),
@@ -693,6 +705,38 @@ def repair_prompt(name: str, deploy: int | None = None):
     if target["error_summary"]:
         diagnosis.summary = target["error_summary"]
     return PlainTextResponse(errors.repair_prompt(name, diagnosis, log_text))
+
+
+def _share_link(row) -> str:
+    """The address to hand somebody, or "" when there is nothing to hand out.
+
+    Built from the tunnel's own hostname, which only the person who set the
+    tunnel up knows, so it is configuration rather than anything the launcher
+    can work out for itself.
+    """
+    token = row["share_token"]
+    if not token or not config.SHARE_BASE_URL:
+        return ""
+    return f"{config.SHARE_BASE_URL}/?k={token}"
+
+
+@app.post("/app/{name}/share")
+def start_sharing(name: str, shared_by: str = Form("")):
+    """Mint a link that reaches this app from outside the office.
+
+    A fresh secret every time, so re-sharing an app whose link got forwarded
+    to the wrong person replaces it rather than adding to it.
+    """
+    row = _require_app(name)
+    db.share_app(int(row["id"]), secrets.token_urlsafe(32), shared_by.strip())
+    return RedirectResponse(f"/app/{name}?shared=1", status_code=303)
+
+
+@app.post("/app/{name}/share/revoke")
+def stop_sharing(name: str):
+    row = _require_app(name)
+    db.unshare_app(int(row["id"]))
+    return RedirectResponse(f"/app/{name}?unshared=1", status_code=303)
 
 
 @app.post("/app/{name}/groups")

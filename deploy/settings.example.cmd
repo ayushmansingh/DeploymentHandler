@@ -32,6 +32,19 @@ REM to suit your team. An app keeps a group you remove from the list, so it
 REM comes back if you put the group back.
 set LAUNCHER_GROUPS=Dashboards,Tools,Designs
 
+REM Sharing an app with somebody OUTSIDE the office. Off while this is 0.
+REM
+REM Set a port and the launcher also listens on 127.0.0.1 with a small server
+REM that serves ONLY apps you have explicitly shared, and only to whoever has
+REM that app's secret link. It is loopback-only: a tunnel running on this
+REM machine is what carries it outside, so this does not widen what the office
+REM network can reach. See the README section "Sharing an app outside".
+set LAUNCHER_SHARE_PORT=0
+
+REM The web address your tunnel hands out, e.g. https://xyz.trycloudflare.com
+REM Only used to print a link you can copy. Leave empty if you have no tunnel.
+set LAUNCHER_SHARE_BASE_URL=
+
 REM How many apps may build at once. Each build can use ~2GB of memory.
 set LAUNCHER_MAX_BUILDS=2
 

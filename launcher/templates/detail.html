@@ -171,6 +171,78 @@
 {% endif %}
 
 <div class="card">
+  <strong>Share outside the office</strong>
+  <p class="muted" style="font-size:13px;margin:4px 0 0">
+    Everyone on the office network can already open this app. This is for
+    somebody who is not — a client, a supplier, a colleague at home.</p>
+
+  {% if just_shared %}
+    <div class="banner ok" style="margin:12px 0 0">
+      Link created. Anyone who has it can open this app.</div>
+  {% elif just_unshared %}
+    <div class="banner ok" style="margin:12px 0 0">
+      Link turned off. It stops working immediately, even for anyone who
+      already had it open.</div>
+  {% endif %}
+
+  {% if not sharing_configured %}
+    <div class="banner working" style="margin:12px 0 0">
+      <strong>Not set up on this server yet.</strong>
+      Sharing needs a tunnel running on the server and
+      <code>LAUNCHER_SHARE_PORT</code> in <code>deploy\settings.cmd</code>.
+      See the README, or ask whoever set this server up. You can still create
+      a link now — it will start working once that is done.</div>
+  {% endif %}
+
+  {% if share_token %}
+    <div class="sharebox">
+      <div class="sharerow">
+        <span class="pill shared">Shared</span>
+        <span class="muted" style="font-size:12.5px">
+          {% if shared_by %}by {{ shared_by }} · {% endif %}
+          {{ shared_at | datetime }}</span>
+      </div>
+
+      {% if share_link %}
+        <label for="sharelink" style="margin-top:12px">The link to send</label>
+        <div class="copyrow">
+          <input id="sharelink" type="text" readonly value="{{ share_link }}">
+          <button type="button" class="copy-text" data-text="{{ share_link }}">Copy</button>
+        </div>
+        <p class="muted" style="font-size:12.5px;margin:7px 0 0">
+          Treat it like a password: anyone who has it can open this app, and
+          there is no second check. Send it directly to the person who needs
+          it, not to a group chat or a shared document.</p>
+      {% else %}
+        <p class="muted" style="font-size:12.5px;margin:12px 0 0">
+          The link exists, but this server has not been told the tunnel's web
+          address, so it cannot be printed here. Set
+          <code>LAUNCHER_SHARE_BASE_URL</code> in
+          <code>deploy\settings.cmd</code> and this will show the full link.
+          The secret part is <code>?k={{ share_token }}</code>.</p>
+      {% endif %}
+
+      <div class="app-actions" style="margin-top:16px;border:0;padding:0">
+        <form method="post" action="/app/{{ app['name'] }}/share"
+              onsubmit="return confirm('Replace the link? The one already sent out will stop working.')">
+          <button>Replace with a new link</button></form>
+        <form method="post" action="/app/{{ app['name'] }}/share/revoke"
+              style="margin-left:auto"
+              onsubmit="return confirm('Turn off outside access to {{ app['name'] }}?')">
+          <button class="danger">Turn off sharing</button></form>
+      </div>
+    </div>
+  {% else %}
+    <form method="post" action="/app/{{ app['name'] }}/share" style="margin-top:14px">
+      <label for="shared_by">Your name</label>
+      <input type="text" id="shared_by" name="shared_by" placeholder="Priya">
+      <p style="margin:14px 0 0">
+        <button type="submit">Create a share link</button></p>
+    </form>
+  {% endif %}
+</div>
+
+<div class="card">
   <strong>Groups</strong>
   <p class="muted" style="font-size:13px;margin:4px 0 0">
     Which tabs this app shows under on the dashboard. It appears under

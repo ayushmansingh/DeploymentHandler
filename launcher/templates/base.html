@@ -250,6 +250,21 @@
   :root[data-theme="dark"] .themetoggle .sun { display: block; }
   :root[data-theme="dark"] .themetoggle .moon { display: none; }
 
+  /* A share link, and the button that copies it. The field is readonly
+     rather than disabled: a disabled input cannot be selected, and selecting
+     it by hand is the fallback when the clipboard is refused. */
+  .sharebox { margin-top: 14px; padding: 14px; border-radius: 10px;
+              border: 1px solid var(--line); background: var(--page); }
+  .sharerow { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .copyrow { display: flex; gap: 8px; align-items: stretch; }
+  .copyrow input { flex: 1; min-width: 0; font-size: 13px;
+                   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  .copyrow button { flex: none; white-space: nowrap; }
+
+  /* On a card, so it is obvious at a glance which apps leave the building. */
+  .pill.shared { background: color-mix(in srgb, var(--person) 16%, transparent);
+                 color: var(--person); }
+
   /* Group tabs over the app grid. Quieter than the header's tabs - these
      filter a list, they do not change page - so they read as a control on
      the grid rather than as a second navigation bar. */
