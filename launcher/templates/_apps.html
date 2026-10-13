@@ -125,8 +125,6 @@
           <a class="app-name stretch" href="/app/{{ app.name }}">{{ app.name }}</a>
         {% endif %}
         <span class="pill {{ app.status }}">{{ app.status }}</span>
-        {% if app.shared %}<span class="pill shared"
-          title="Reachable from outside the office by anyone with its link">Shared</span>{% endif %}
       </div>
 
       {% if app.url %}

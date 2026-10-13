@@ -112,23 +112,6 @@ SCREENSHOTS_ENABLED = SCREENSHOT_BROWSER.lower() != "off"
 # How many uploaded versions to keep per app before pruning the oldest.
 KEEP_VERSIONS = _env_int("LAUNCHER_KEEP_VERSIONS", 5)
 
-# Sharing an app with somebody outside the office.
-#
-# Off unless a port is set. When it is, a second, much smaller server listens
-# on loopback ONLY - never on the network - and serves an app to whoever holds
-# its secret link. A tunnel on this same machine is what carries it outside;
-# binding to loopback is what stops turning sharing on from also widening what
-# the office network can reach.
-SHARE_PORT = _env_int("LAUNCHER_SHARE_PORT", 0)
-
-# The address the tunnel hands out, e.g. https://dashboards.example.com . Used
-# only to print a link somebody can copy; sharing works without it.
-SHARE_BASE_URL = os.environ.get("LAUNCHER_SHARE_BASE_URL", "").strip().rstrip("/")
-
-
-def sharing_configured() -> bool:
-    return SHARE_PORT > 0
-
 # The groups the dashboard files apps under, shown as tabs beside "All".
 #
 # A short fixed list rather than free-form tags. Free text from a dozen people
