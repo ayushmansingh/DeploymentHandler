@@ -5,6 +5,10 @@ One of these runs per deployed app. It binds the app's public port and:
     /          serves the built frontend, with single-page-app fallback
     /api/...   proxies to the app's Python backend on 127.0.0.1
 
+It also counts how often the app is opened, because it is the one place every
+visit passes through - a bookmark and a click from the dashboard arrive here
+identically. See launcher/visits.py for what is and is not recorded.
+
 Serving both from one origin is what lets the frontend use relative "/api/..."
 calls with no per-app configuration - the same property the container layout
 provided, reproduced without containers.
@@ -28,6 +32,8 @@ from starlette.responses import FileResponse, PlainTextResponse, Response, Strea
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from . import visits
+
 # Headers that describe a single hop and must not be forwarded verbatim.
 HOP_BY_HOP = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -45,7 +51,8 @@ def _forwardable(headers) -> dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP}
 
 
-def build_app(static_dir: Path | None, backend_port: int | None) -> Starlette:
+def build_app(static_dir: Path | None, backend_port: int | None,
+              counter=None, launcher_port: int = 0) -> Starlette:
     client = httpx.AsyncClient(
         base_url=f"http://127.0.0.1:{backend_port}" if backend_port else "http://127.0.0.1",
         timeout=httpx.Timeout(300.0, connect=10.0),
@@ -106,7 +113,30 @@ def build_app(static_dir: Path | None, backend_port: int | None) -> Starlette:
     app = Starlette(routes=routes, lifespan=lifespan)
     if static_dir is not None:
         app.add_middleware(SpaFallback, index=static_dir / "index.html")
+    if counter is not None:
+        # Outermost, so it sees the request whatever happens further in - an
+        # open still counts when the backend is down and the person gets a
+        # 502, because they still came looking.
+        app.add_middleware(CountOpens, counter=counter, launcher_port=launcher_port)
     return app
+
+
+class CountOpens(BaseHTTPMiddleware):
+    """Tally page opens. Never the reason a request fails."""
+
+    def __init__(self, app, counter, launcher_port: int) -> None:
+        super().__init__(app)
+        self.counter = counter
+        self.launcher_port = launcher_port
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            if visits.is_an_open(request.method, request.url.path, request.headers):
+                self.counter.record(visits.came_from_launcher(
+                    request.headers.get("referer", ""), self.launcher_port))
+        except Exception:  # noqa: BLE001 - a counter must never break an app
+            pass
+        return await call_next(request)
 
 
 def _closing(response: httpx.Response):
@@ -143,16 +173,27 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--static", default="", help="directory of built frontend files")
     parser.add_argument("--backend-port", type=int, default=0)
+    parser.add_argument("--app-id", type=int, default=0,
+                        help="count opens for this app; 0 disables counting")
+    parser.add_argument("--launcher-port", type=int, default=0,
+                        help="used only to tell a click from the dashboard "
+                             "apart from a bookmark")
     args = parser.parse_args()
 
     static_dir = Path(args.static).resolve() if args.static else None
     if static_dir is not None and not static_dir.is_dir():
         raise SystemExit(f"static directory does not exist: {static_dir}")
 
+    counter = None
+    if args.app_id:
+        from .visits import Counter
+        counter = Counter(args.app_id)
+
     import uvicorn
 
     uvicorn.run(
-        build_app(static_dir, args.backend_port or None),
+        build_app(static_dir, args.backend_port or None,
+                  counter=counter, launcher_port=args.launcher_port),
         host="0.0.0.0",
         port=args.port,
         log_level="warning",

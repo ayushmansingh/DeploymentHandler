@@ -264,7 +264,8 @@ def _spawn(cmd: list[str], cwd: Path, log_path: Path,
 def start(app_name: str, src: Path, spec: Spec, public_port: int,
           backend_port: int | None, log_dir: Path,
           data_dir: Path | None = None,
-          app_settings: dict[str, str] | None = None) -> Processes:
+          app_settings: dict[str, str] | None = None,
+          app_id: int | None = None) -> Processes:
     """Launch the app's processes and return their pids."""
     processes = Processes()
     runtime_log = log_dir / "runtime.log"
@@ -303,6 +304,12 @@ def start(app_name: str, src: Path, spec: Spec, public_port: int,
     ]
     if static is not None:
         front_cmd += ["--static", str(static)]
+    if app_id:
+        # Counting opens. The launcher's own port goes with it so the front
+        # server can tell a click from the dashboard apart from a bookmark;
+        # it is not used for anything else.
+        front_cmd += ["--app-id", str(app_id),
+                      "--launcher-port", str(config.LAUNCHER_PORT)]
 
     processes.front_pid = _spawn(
         front_cmd,

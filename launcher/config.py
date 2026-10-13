@@ -112,6 +112,16 @@ SCREENSHOTS_ENABLED = SCREENSHOT_BROWSER.lower() != "off"
 # How many uploaded versions to keep per app before pruning the oldest.
 KEEP_VERSIONS = _env_int("LAUNCHER_KEEP_VERSIONS", 5)
 
+# The port the dashboard itself listens on. uvicorn is told this on the command
+# line, so this is a reference copy used for one thing only: telling a visit
+# that arrived by clicking the dashboard apart from one that came from a
+# bookmark. Getting it wrong mislabels that split and nothing else.
+LAUNCHER_PORT = _env_int("LAUNCHER_PORT", 8080)
+
+# How far back the Stats tab looks. Counts older than this are dropped, so the
+# database does not grow for ever.
+USAGE_DAYS = _env_int("LAUNCHER_USAGE_DAYS", 90)
+
 # The groups the dashboard files apps under, shown as tabs beside "All".
 #
 # A short fixed list rather than free-form tags. Free text from a dozen people

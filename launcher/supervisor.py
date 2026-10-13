@@ -83,6 +83,7 @@ def launch(app_row, reason: str = "") -> bool:
     processes = native.start(
         name, src, spec, public_port, backend_port, config.LOG_DIR / name,
         appdata.dir_for(name), db.effective_env(int(app_row["id"])),
+        app_id=int(app_row["id"]),
     )
     db.update_app(
         int(app_row["id"]),
@@ -262,6 +263,30 @@ def recover_interrupted_deploys() -> None:
             db.update_app(int(app_row["id"]), status="live" if serving else "failed")
 
 
+_last_prune: float = 0.0
+
+
+def prune_old_usage(now: float | None = None) -> int:
+    """Drop usage counts past the window, about once a day.
+
+    On a timer rather than on every pass: there is nothing to delete 2,879
+    times out of 2,880, and a DELETE that matches nothing still takes a write
+    lock the deploy worker may be waiting on.
+    """
+    global _last_prune
+    from datetime import date, timedelta
+
+    moment = now if now is not None else time.time()
+    if moment - _last_prune < 86400:
+        return 0
+    _last_prune = moment
+    cutoff = (date.today() - timedelta(days=config.USAGE_DAYS)).strftime("%Y-%m-%d")
+    try:
+        return db.prune_visits(cutoff)
+    except Exception:  # noqa: BLE001 - housekeeping is never worth an outage
+        return 0
+
+
 def restore_on_startup() -> None:
     """Bring back apps that were running when the launcher last stopped.
 
@@ -292,6 +317,7 @@ def _loop() -> None:
     while not _stop.wait(config.SUPERVISOR_INTERVAL_SECONDS):
         try:
             metrics.sample()
+            prune_old_usage()
             with _lock:
                 check_once()
         except Exception:  # noqa: BLE001 - the supervisor must never die

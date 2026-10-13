@@ -32,6 +32,9 @@ REM to suit your team. An app keeps a group you remove from the list, so it
 REM comes back if you put the group back.
 set LAUNCHER_GROUPS=Dashboards,Tools,Designs
 
+REM How far back the Stats tab looks, in days. Older counts are deleted.
+set LAUNCHER_USAGE_DAYS=90
+
 REM How many apps may build at once. Each build can use ~2GB of memory.
 set LAUNCHER_MAX_BUILDS=2
 

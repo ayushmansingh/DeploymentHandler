@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from . import __version__
 from . import appdata, auth, config, db, deployer, errors, files, hostinfo, metrics, naming, native
 from . import selfupdate, settings as app_settings, thumbs
-from . import ports
+from . import charts, ports
 from . import runtime
 from . import supervisor
 
@@ -336,6 +336,101 @@ def dashboard(request: Request, group: str = ""):
             **_grid_context(request, group), **_nav("dashboard", request),
             "runtime_ready": ready, "runtime_problem": problem,
         },
+    )
+
+
+def _stats_context(request: Request) -> dict:
+    """What the Stats tab shows: which apps people actually open.
+
+    Everything here is a count. Nothing identifies a visitor, because nothing
+    that identifies one is recorded - see launcher/visits.py.
+    """
+    from datetime import date, timedelta
+
+    window = config.USAGE_DAYS
+    today = date.today()
+    days = charts.day_range(window, today)
+    recent_days = charts.day_range(30, today)
+
+    totals = db.opens_by_app(days[0])
+    last_30 = db.opens_by_app(recent_days[0])
+    last_7 = db.opens_by_app(charts.day_range(7, today)[0])
+
+    rows: list[dict] = []
+    for app_row in db.list_apps():
+        app_id = int(app_row["id"])
+        month = last_30.get(app_id, {})
+        rows.append({
+            "name": app_row["name"],
+            "status": app_row["status"],
+            "opens_30": month.get("opens", 0),
+            "opens_7": last_7.get(app_id, {}).get("opens", 0),
+            "opens_window": totals.get(app_id, {}).get("opens", 0),
+            "from_launcher": month.get("from_launcher", 0),
+            "last_open_at": app_row["last_open_at"],
+            "spark": charts.area_path(
+                charts.series_for(recent_days,
+                                  db.daily_opens(recent_days[0], app_id)),
+                width=120, height=26, pad=2,
+            ),
+        })
+
+    rows.sort(key=lambda r: (-r["opens_30"], r["name"]))
+    quiet = [r for r in rows if r["opens_30"] == 0]
+
+    everything = db.daily_opens(days[0])
+    weeks = charts.bucket_by_week(days, everything)
+    # The newest week is still running, so it is always short. Plotting it
+    # beside full weeks invents a decline that has not happened.
+    complete = weeks[:-1] if len(weeks) > 1 else weeks
+
+    month_total = sum(r["opens_30"] for r in rows)
+    return {
+        "window_days": window,
+        "rows": rows,
+        "ranked": charts.bar_rows(
+            [(r["name"], r["opens_30"]) for r in rows if r["opens_30"]][:10]
+        ),
+        "quiet": quiet,
+        "opens_7": sum(r["opens_7"] for r in rows),
+        "opens_30": month_total,
+        "from_launcher_30": sum(r["from_launcher"] for r in rows),
+        "active_apps": sum(1 for r in rows if r["opens_30"]),
+        "app_total": len(rows),
+        "weeks": complete,
+        "week_series": charts.area_path(
+            [w["total"] for w in complete], width=640, height=120
+        ),
+        "has_data": month_total > 0 or any(r["opens_window"] for r in rows),
+        "counting_since": _counting_since(),
+    }
+
+
+def _counting_since() -> float | None:
+    """When this server started counting, so an empty page can say so.
+
+    Without it, a dashboard that has been live for months but only counting
+    since yesterday reads as "nobody uses any of this".
+    """
+    marker = config.DATA_DIR / "usage-since"
+    try:
+        return float(marker.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        pass
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        marker.write_text(str(now), encoding="utf-8")
+        return now
+    except OSError:
+        return None
+
+
+@app.get("/stats", response_class=HTMLResponse)
+def stats_page(request: Request):
+    return templates.TemplateResponse(
+        request, "stats.html",
+        {**_nav("stats", request), **_stats_context(request)},
     )
 
 

@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Stats{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div>
+    <h1>Stats</h1>
+    <p class="sub">How often each app is opened. Counts only — nothing here
+      records who opened anything.</p>
+  </div>
+  <a class="btn" href="/">All applications</a>
+</div>
+
+{% if not has_data %}
+  <div class="card" style="margin-top:16px">
+    <strong>No opens counted yet.</strong>
+    <p class="muted" style="font-size:13.5px;margin:6px 0 0">
+      Counting started
+      {% if counting_since %}{{ counting_since | datetime }}{% else %}recently{% endif %},
+      when this version of the launcher was installed. Apps that were already
+      running keep their old counts of nothing until they are next started —
+      restart them from their own pages, or just wait for the next deploy.</p>
+  </div>
+{% else %}
+
+{# Four numbers, not four charts: each is a single value, and a stat tile is
+   what a single value wants. #}
+<div class="stats">
+  <div class="stat">
+    <div class="top"><div class="label">Opens this week</div></div>
+    <div class="value">{{ opens_7 }}</div>
+    <div class="note">{{ opens_30 }} in the last 30 days</div>
+  </div>
+
+  <div class="stat">
+    <div class="top"><div class="label">Apps being used</div></div>
+    <div class="value">{{ active_apps }} <small>of {{ app_total }}</small></div>
+    <div class="note">
+      {% if quiet %}{{ quiet | length }} not opened in 30 days
+      {% else %}every app opened at least once{% endif %}</div>
+  </div>
+
+  <div class="stat">
+    <div class="top"><div class="label">Found via the launcher</div></div>
+    <div class="value">
+      {{ (from_launcher_30 / opens_30 * 100) | round | int if opens_30 else 0 }}<small>%</small></div>
+    <div class="note">the rest came from bookmarks and shared links</div>
+  </div>
+
+  <div class="stat">
+    <div class="top"><div class="label">Busiest app</div></div>
+    <div class="value" style="font-size:19px;line-height:1.5">
+      {{ rows[0].name if rows and rows[0].opens_30 else '—' }}</div>
+    <div class="note">
+      {% if rows and rows[0].opens_30 %}{{ rows[0].opens_30 }} opens in 30 days
+      {% else %}nothing opened yet{% endif %}</div>
+  </div>
+</div>
+
+{% if week_series %}
+<h2>Opens per week</h2>
+<div class="card">
+  <p class="muted" style="font-size:12.5px;margin:0 0 14px">
+    Whole weeks only — the week in progress is left off, because a part-week
+    beside full ones looks like a drop that has not happened.</p>
+  <svg class="chart" viewBox="0 0 {{ week_series.width }} {{ week_series.height }}"
+       preserveAspectRatio="none" role="img"
+       aria-label="Opens per week over the last {{ window_days }} days">
+    <path class="area" d="{{ week_series.area }}"/>
+    <path class="line" d="{{ week_series.line }}"/>
+    <circle class="head" cx="{{ week_series.last_x }}" cy="{{ week_series.last_y }}" r="4"/>
+  </svg>
+  <div class="chart-foot">
+    <span>{{ weeks[0].start }}</span>
+    <span class="peak">peak {{ week_series.top }} in a week</span>
+    <span>{{ weeks[-1].end }}</span>
+  </div>
+</div>
+{% endif %}
+
+{% if ranked %}
+<h2>Most opened, last 30 days</h2>
+<div class="card">
+  <div class="ranked">
+    {% for row in ranked %}
+    <a class="rankrow" href="/app/{{ row.name }}">
+      <span class="rankname">{{ row.name }}</span>
+      {# One hue for every bar. Shading by length would spend the only free
+         channel restating the length the bar already shows. #}
+      <span class="rankbar" aria-hidden="true">
+        <i style="width: {{ row.percent }}%"></i>
+      </span>
+      <span class="rankvalue">{{ row.value }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<h2>Every app</h2>
+<div class="card" style="padding:6px 14px">
+  <table>
+    <thead>
+      <tr>
+        <th>App</th>
+        <th style="width:130px">Last 30 days</th>
+        <th style="width:130px">Trend</th>
+        <th style="width:120px">Via launcher</th>
+        <th style="width:170px">Last opened</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td><a href="/app/{{ row.name }}">{{ row.name }}</a></td>
+        <td>{{ row.opens_30 }}</td>
+        <td>
+          {% if row.spark and row.opens_30 %}
+          <svg class="spark" viewBox="0 0 {{ row.spark.width }} {{ row.spark.height }}"
+               preserveAspectRatio="none" aria-hidden="true">
+            <path class="area" d="{{ row.spark.area }}"/>
+            <path class="line" d="{{ row.spark.line }}"/>
+          </svg>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>
+          {% if row.opens_30 %}{{ (row.from_launcher / row.opens_30 * 100) | round | int }}%
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>
+          {% if row.last_open_at %}{{ row.last_open_at | datetime }}
+          {% else %}<span class="muted">never</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if quiet %}
+<h2>Nobody opened these in 30 days</h2>
+<div class="card">
+  <p class="muted" style="font-size:13.5px;margin:0 0 10px">
+    Each one is still running and still using memory. Worth asking whether
+    they are finished with — the Delete button is on each app's page.</p>
+  <div class="app-groups">
+    {% for row in quiet %}
+      <a class="grouppill" href="/app/{{ row.name }}"
+         style="text-decoration:none">{{ row.name }}</a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endif %}
+
+<p class="muted" style="font-size:12.5px;margin:22px 2px 0">
+  An open is a person loading the app, not every file the page then fetches.
+  Bookmarks, pasted links and clicks from the dashboard all count, because the
+  counting happens inside each app rather than on this dashboard. Counts older
+  than {{ window_days }} days are deleted.
+</p>
+{% endblock %}

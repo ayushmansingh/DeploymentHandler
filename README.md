@@ -425,6 +425,42 @@ The rule is a closed list — `/admin` and below — rather than a list of
 exceptions, so a page added later is open unless somebody decides it should
 not be.
 
+## Stats
+
+The **Stats** tab answers one question: which apps are people actually using?
+
+- Opens this week and this month, and how many apps were opened at all
+- A weekly trend over 90 days, whole weeks only
+- The apps ranked by opens, and the ones **nobody has opened in 30 days** —
+  still running, still using memory, worth asking about
+- What share of visits arrive by clicking through the dashboard rather than
+  from a bookmark
+
+### What is counted
+
+An **open** is a person loading an app, not every file the page then fetches —
+one dashboard pulling sixty assets is one open. Browsers say which is which
+with `Sec-Fetch-Mode`; where that is missing the shape of the path decides.
+
+Counting happens **inside each app's own front server**, not on the dashboard.
+That is deliberate: once somebody has an app's link they bookmark it, paste it
+into a chat or put it on a wiki, and none of those ever touch the launcher
+again. Counting dashboard clicks would have missed most of the traffic.
+
+### What is not counted
+
+No address, no username, no session, no row per visit. The database keeps one
+number per app per day and the time of the most recent open — nothing that
+could say who opened anything, because the question never needed it.
+
+Counts are held in memory and written every 30 seconds, so a busy app is not
+doing a database write per page view. Counts older than 90 days are deleted;
+change that with `LAUNCHER_USAGE_DAYS`.
+
+Counting starts when this version is installed, and an app only starts
+counting when it is next started — so the tab says when counting began rather
+than letting a long-running app look unused.
+
 ## Light and dark
 
 The dashboard follows whatever the machine is set to, and the switch in the

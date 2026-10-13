@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS apps (
     -- What the current version says it needs, as JSON. Names and descriptions
     -- only; the values live in app_settings.
     declared_settings TEXT NOT NULL DEFAULT '[]',
+    -- The last time anybody opened this app, to the second. The daily rows
+    -- in app_visits cannot answer "has anyone touched it this week?" on their
+    -- own, and that is the question that retires a dead app.
+    last_open_at  REAL,
     created_at    REAL    NOT NULL,
     updated_at    REAL    NOT NULL
 );
@@ -87,6 +91,22 @@ CREATE TABLE IF NOT EXISTS app_groups (
     PRIMARY KEY (app_id, name)
 );
 
+-- How often each app was opened, by day. One row per app per day, not one
+-- per visit: nobody is identified, nothing is kept that could identify them,
+-- and 14 apps over 90 days is about 1300 rows rather than a growing log.
+--
+-- `opens` counts page opens, not requests - a dashboard pulling 60 assets is
+-- one open. `from_launcher` is the subset that arrived by clicking through
+-- the dashboard rather than from a bookmark or a pasted link.
+CREATE TABLE IF NOT EXISTS app_visits (
+    app_id        INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+    day           TEXT    NOT NULL,
+    opens         INTEGER NOT NULL DEFAULT 0,
+    from_launcher INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (app_id, day)
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_visits_day ON app_visits(day);
 CREATE INDEX IF NOT EXISTS idx_deploys_app ON deploys(app_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_app_groups_name ON app_groups(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ports_app_role ON ports(app_id, role);
@@ -111,6 +131,7 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 # database picks them up without a manual migration step.
 _ADDED_COLUMNS = {
     "apps": {
+        "last_open_at": "REAL",
         "backend_port": "INTEGER",
         "pid": "INTEGER",
         "front_pid": "INTEGER",
@@ -183,6 +204,78 @@ def update_app(app_id: int, db_path: Path | None = None, **fields: Any) -> None:
 def delete_app(app_id: int, db_path: Path | None = None) -> None:
     with connect(db_path) as conn:
         conn.execute("DELETE FROM apps WHERE id = ?", (app_id,))
+
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+
+def record_opens(app_id: int, day: str, opens: int, from_launcher: int = 0,
+                 when: float | None = None, db_path: Path | None = None) -> None:
+    """Add to one app's tally for one day.
+
+    Adding rather than setting, because the counts arrive in batches from a
+    process that has been holding them in memory - two flushes on the same day
+    have to accumulate, not overwrite each other.
+    """
+    if opens <= 0:
+        return
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO app_visits (app_id, day, opens, from_launcher)"
+            " VALUES (?,?,?,?)"
+            " ON CONFLICT(app_id, day) DO UPDATE SET"
+            "   opens = opens + excluded.opens,"
+            "   from_launcher = from_launcher + excluded.from_launcher",
+            (app_id, day, opens, from_launcher),
+        )
+        conn.execute(
+            "UPDATE apps SET last_open_at = MAX(COALESCE(last_open_at, 0), ?)"
+            " WHERE id = ?",
+            (when if when is not None else time.time(), app_id),
+        )
+
+
+def opens_by_app(since_day: str, db_path: Path | None = None) -> dict[int, dict]:
+    """Totals per app since a day, inclusive."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT app_id, SUM(opens) AS opens,"
+            "       SUM(from_launcher) AS from_launcher"
+            " FROM app_visits WHERE day >= ? GROUP BY app_id",
+            (since_day,),
+        ).fetchall()
+    return {
+        int(r["app_id"]): {"opens": int(r["opens"] or 0),
+                           "from_launcher": int(r["from_launcher"] or 0)}
+        for r in rows
+    }
+
+
+def daily_opens(since_day: str, app_id: int | None = None,
+                db_path: Path | None = None) -> dict[str, int]:
+    """Opens per day, for the whole server or for one app.
+
+    Days with no visits are absent rather than zero; the caller fills the gaps,
+    because only it knows which days the chart is meant to cover.
+    """
+    query = ("SELECT day, SUM(opens) AS opens FROM app_visits"
+             " WHERE day >= ?")
+    params: list = [since_day]
+    if app_id is not None:
+        query += " AND app_id = ?"
+        params.append(app_id)
+    query += " GROUP BY day ORDER BY day"
+    with connect(db_path) as conn:
+        return {r["day"]: int(r["opens"] or 0)
+                for r in conn.execute(query, params).fetchall()}
+
+
+def prune_visits(before_day: str, db_path: Path | None = None) -> int:
+    """Drop counts older than the window the Stats tab shows."""
+    with connect(db_path) as conn:
+        cur = conn.execute("DELETE FROM app_visits WHERE day < ?", (before_day,))
+        return int(cur.rowcount or 0)
 
 
 # ---------------------------------------------------------------------------
